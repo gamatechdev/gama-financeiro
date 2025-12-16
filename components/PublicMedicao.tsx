@@ -111,17 +111,20 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
             data: new Date().toISOString()
         };
 
+        // Wrap approvalData in an array to fix "expected JSON array" error
+        const payload = [approvalData];
+
         const { error } = await supabase
             .from('clientes')
             .update({ 
                 status_medicao: 'Aceita',
-                aprovado_por: approvalData
+                aprovado_por: payload
             })
             .eq('id', cliente.id);
         
         if (error) throw error;
         
-        setCliente({ ...cliente, status_medicao: 'Aceita', aprovado_por: approvalData });
+        setCliente({ ...cliente, status_medicao: 'Aceita', aprovado_por: payload });
         setShowAcceptModal(false);
         // Open Payment Modal immediately after acceptance
         setShowPaymentModal(true); 
@@ -160,6 +163,19 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
     const date = new Date(parseInt(year), parseInt(month) - 1, 15);
     const monthName = date.toLocaleString('pt-BR', { month: 'long' });
     return `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} de ${year}`;
+  };
+
+  // Helper to safely get approver name whether it's an array or object
+  const getApproverName = () => {
+    if (!cliente?.aprovado_por) return 'Usuário';
+    
+    // Check if it's an array (new format)
+    if (Array.isArray(cliente.aprovado_por)) {
+       return cliente.aprovado_por[0]?.nome || 'Usuário';
+    }
+    
+    // Fallback for object (legacy format)
+    return cliente.aprovado_por?.nome || 'Usuário';
   };
 
   const total = receitas.reduce((acc, r) => acc + (r.valor_total || 0), 0);
@@ -325,7 +341,7 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
                             <div>
                                 <h4 className="font-bold text-green-800">Medição Aprovada</h4>
                                 <p className="text-sm text-green-600">
-                                    Aprovado por <strong>{cliente.aprovado_por?.nome || 'Usuário'}</strong>.
+                                    Aprovado por <strong>{getApproverName()}</strong>.
                                 </p>
                             </div>
                          </div>
