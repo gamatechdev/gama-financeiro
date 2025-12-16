@@ -180,22 +180,70 @@ const Medicoes: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleEdit = (receita: FinanceiroReceita) => {
+  const handleEdit = async (receita: FinanceiroReceita) => {
     setEditingId(receita.id);
     
+    let initialSnapshotItems: {name: string, value: string}[] = [];
+
     // Check for exames_snapshot
     if (receita.exames_snapshot && Array.isArray(receita.exames_snapshot) && receita.exames_snapshot.length > 0) {
-        setSnapshotItems(receita.exames_snapshot.map(name => ({ name, value: '' })));
-    } else {
-        setSnapshotItems([]);
+        
+        // 1. Get List of Exam Names
+        const examNames = receita.exames_snapshot.map((item: any) => 
+            typeof item === 'string' ? item : item.name
+        );
+
+        // 2. Fetch Prices from `preco_exames` if client is set
+        let priceMap: Record<string, number> = {};
+        
+        if (receita.contratante) {
+            try {
+                const { data: prices } = await supabase
+                    .from('preco_exames')
+                    .select('nome, preco')
+                    .eq('empresaId', receita.contratante)
+                    .in('nome', examNames);
+
+                if (prices) {
+                    prices.forEach((p: any) => {
+                        priceMap[p.nome] = p.preco;
+                    });
+                }
+            } catch (err) {
+                console.error("Error fetching exam prices:", err);
+            }
+        }
+
+        // 3. Map items, preferring saved value, fallback to table price, else 0
+        initialSnapshotItems = receita.exames_snapshot.map((item: any) => {
+            const name = typeof item === 'string' ? item : item.name;
+            const savedValue = typeof item === 'object' && item.value ? parseFloat(item.value) : 0;
+            
+            // If saved value is 0, try to populate from table
+            const tablePrice = priceMap[name] || 0;
+            const finalValue = savedValue > 0 ? savedValue : tablePrice;
+
+            return { name, value: finalValue > 0 ? finalValue.toString() : '' };
+        });
     }
+
+    setSnapshotItems(initialSnapshotItems);
+
+    // Recalculate total from snapshot if original total is 0 (first edit)
+    const snapshotTotal = initialSnapshotItems.reduce((acc, item) => acc + (parseFloat(item.value) || 0), 0);
+    const displayTotal = receita.valor_total && receita.valor_total > 0 
+        ? receita.valor_total.toString() 
+        : (snapshotTotal > 0 ? snapshotTotal.toFixed(2) : '');
 
     setFormData({
       empresa_resp: receita.empresa_resp || 'Gama Medicina',
-      valor_total: receita.valor_total?.toString() || '',
+      valor_total: displayTotal,
       qnt_parcela: receita.qnt_parcela?.toString() || '1',
       data_projetada: receita.data_projetada ? receita.data_projetada.split('T')[0] : '',
-      data_executada: receita.data_executada ? receita.data_executada.split('T')[0] : '',
+      // Only set data_executada if status is actually 'Pago'. Otherwise keep it empty.
+      data_executada: (receita.status?.toLowerCase() === 'pago' && receita.data_executada) 
+        ? receita.data_executada.split('T')[0] 
+        : '',
       descricao: receita.descricao || ''
     });
     setIsModalOpen(true);
@@ -270,6 +318,12 @@ const Medicoes: React.FC = () => {
       const totalValue = formData.valor_total ? parseFloat(formData.valor_total) : 0;
       const numInstallments = formData.qnt_parcela ? parseInt(formData.qnt_parcela) : 1;
       
+      // Determine extra fields for snapshot and valor_med
+      const snapshotFields = snapshotItems.length > 0 ? {
+          valor_med: totalValue, // Update Medicine Value with the total of exams
+          exames_snapshot: snapshotItems // Save the detailed list with values
+      } : {};
+
       // LOGIC FOR UPDATE (EDIT)
       if (editingId) {
          const payload = {
@@ -280,7 +334,8 @@ const Medicoes: React.FC = () => {
             data_projetada: formData.data_projetada || null,
             data_executada: formData.data_executada || null,
             descricao: formData.descricao,
-            status: formData.data_executada ? 'Pago' : 'Pendente'
+            status: formData.data_executada ? 'Pago' : 'Pendente',
+            ...snapshotFields
          };
 
          const { error } = await supabase
@@ -315,7 +370,8 @@ const Medicoes: React.FC = () => {
               data_projetada: dueDateStr,
               data_executada: formData.data_executada || null,
               descricao: desc,
-              status: formData.data_executada ? 'Pago' : 'Pendente'
+              status: formData.data_executada ? 'Pago' : 'Pendente',
+              ...snapshotFields
             });
           }
         } else {
@@ -327,7 +383,8 @@ const Medicoes: React.FC = () => {
               data_projetada: formData.data_projetada || null,
               data_executada: formData.data_executada || null,
               descricao: formData.descricao,
-              status: formData.data_executada ? 'Pago' : 'Pendente'
+              status: formData.data_executada ? 'Pago' : 'Pendente',
+              ...snapshotFields
             });
         }
 
