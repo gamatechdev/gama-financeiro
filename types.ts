@@ -2,6 +2,8 @@ export interface Cliente {
   id: string;
   nome_fantasia: string;
   razao_social: string;
+  status_medicao?: string | null; // 'Aguardando' | 'Aceita' | 'Recusada' | null
+  aprovado_por?: any | null; // JSON array [nome, cpf] or object
 }
 
 export interface Unidade {

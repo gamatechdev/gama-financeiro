@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { FinanceiroReceita, Cliente } from '../types';
-import { Layers, Calendar, CheckCircle, AlertCircle, Printer, Download, Share2 } from 'lucide-react';
+import { Layers, Calendar, CheckCircle, AlertCircle, Printer, Check, X, User, XCircle } from 'lucide-react';
 
 interface PublicMedicaoProps {
   dataToken: string;
@@ -13,6 +13,12 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [receitas, setReceitas] = useState<FinanceiroReceita[]>([]);
   const [monthStr, setMonthStr] = useState('');
+
+  // Approval Flow States
+  const [showAcceptModal, setShowAcceptModal] = useState(false);
+  const [approverName, setApproverName] = useState('');
+  const [approverCpf, setApproverCpf] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
@@ -61,6 +67,61 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
 
     loadData();
   }, [dataToken]);
+
+  const handleReject = async () => {
+    if (!cliente) return;
+    if (!confirm("Tem certeza que deseja recusar esta medição?")) return;
+
+    setIsProcessing(true);
+    try {
+        const { error } = await supabase
+            .from('clientes')
+            .update({ status_medicao: 'Recusada' })
+            .eq('id', cliente.id);
+        
+        if (error) throw error;
+        setCliente({ ...cliente, status_medicao: 'Recusada' });
+        alert("Medição recusada com sucesso.");
+    } catch (err) {
+        console.error(err);
+        alert("Erro ao recusar medição.");
+    } finally {
+        setIsProcessing(false);
+    }
+  };
+
+  const handleConfirmAccept = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cliente) return;
+
+    setIsProcessing(true);
+    try {
+        const approvalData = {
+            nome: approverName,
+            cpf: approverCpf,
+            data: new Date().toISOString()
+        };
+
+        const { error } = await supabase
+            .from('clientes')
+            .update({ 
+                status_medicao: 'Aceita',
+                aprovado_por: approvalData
+            })
+            .eq('id', cliente.id);
+        
+        if (error) throw error;
+        
+        setCliente({ ...cliente, status_medicao: 'Aceita', aprovado_por: approvalData });
+        setShowAcceptModal(false);
+        alert("Medição aceita com sucesso!");
+    } catch (err) {
+        console.error(err);
+        alert("Erro ao aceitar medição.");
+    } finally {
+        setIsProcessing(false);
+    }
+  };
 
   const formatCurrency = (val: number | null) => {
     if (val === null || val === undefined) return 'R$ 0,00';
@@ -113,6 +174,10 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
     );
   }
 
+  const isPending = !cliente.status_medicao || cliente.status_medicao === 'Aguardando';
+  const isAccepted = cliente.status_medicao === 'Aceita';
+  const isRejected = cliente.status_medicao === 'Recusada';
+
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4 md:px-8">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -143,7 +208,11 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
              
              <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
                <div>
-                 <p className="text-blue-300 font-bold uppercase tracking-widest text-xs mb-2">Demonstrativo de Serviços</p>
+                 <div className="flex items-center gap-3 mb-2">
+                    <p className="text-blue-300 font-bold uppercase tracking-widest text-xs">Demonstrativo de Serviços</p>
+                    {isAccepted && <span className="px-2 py-0.5 rounded bg-green-500/20 border border-green-500/50 text-green-300 text-[10px] font-bold uppercase">Aprovado</span>}
+                    {isRejected && <span className="px-2 py-0.5 rounded bg-red-500/20 border border-red-500/50 text-red-300 text-[10px] font-bold uppercase">Recusado</span>}
+                 </div>
                  <h1 className="text-3xl md:text-4xl font-bold">{cliente.nome_fantasia || cliente.razao_social}</h1>
                  <p className="text-slate-400 mt-2 text-sm max-w-md">{cliente.razao_social}</p>
                </div>
@@ -207,6 +276,56 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
               </div>
             </div>
 
+            {/* Approval Actions or Status Banner */}
+            <div className="mt-8 print:hidden">
+                {isPending && (
+                    <div className="flex flex-col md:flex-row gap-4 justify-end">
+                        <button 
+                            onClick={handleReject}
+                            disabled={isProcessing}
+                            className="px-6 py-3 rounded-xl border border-red-200 text-red-600 font-bold hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
+                        >
+                            <X size={18} /> Recusar Medição
+                        </button>
+                        <button 
+                            onClick={() => setShowAcceptModal(true)}
+                            disabled={isProcessing}
+                            className="px-6 py-3 rounded-xl bg-green-600 text-white font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-600/20 flex items-center justify-center gap-2"
+                        >
+                            <Check size={18} /> Aprovar Medição
+                        </button>
+                    </div>
+                )}
+
+                {isAccepted && (
+                     <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex flex-col md:flex-row items-center gap-4 text-center md:text-left">
+                        <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center shrink-0">
+                            <CheckCircle size={24} />
+                        </div>
+                        <div>
+                            <h4 className="font-bold text-green-800">Medição Aprovada</h4>
+                            <p className="text-sm text-green-600">
+                                Aprovado por <strong>{cliente.aprovado_por?.nome || 'Usuário'}</strong>.
+                            </p>
+                        </div>
+                     </div>
+                )}
+
+                {isRejected && (
+                     <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex flex-col md:flex-row items-center gap-4 text-center md:text-left">
+                        <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+                            <XCircle size={24} />
+                        </div>
+                        <div>
+                            <h4 className="font-bold text-red-800">Medição Recusada</h4>
+                            <p className="text-sm text-red-600">
+                                O cliente apontou divergências nesta medição. Entre em contato para regularizar.
+                            </p>
+                        </div>
+                     </div>
+                )}
+            </div>
+
             {/* Note */}
             <div className="mt-10 text-center">
                <p className="text-xs text-slate-400 max-w-lg mx-auto">
@@ -218,6 +337,63 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
           </div>
         </div>
       </div>
+
+      {/* Approval Modal */}
+      {showAcceptModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-md" onClick={() => setShowAcceptModal(false)}></div>
+          
+          <div className="bg-white w-full max-w-md rounded-3xl relative z-10 p-8 shadow-2xl animate-[scaleIn_0.2s_ease-out]">
+            <h3 className="text-xl font-bold text-slate-800 mb-2">Aprovar Medição</h3>
+            <p className="text-slate-500 text-sm mb-6">Por favor, identifique-se para confirmar a aprovação deste demonstrativo.</p>
+
+            <form onSubmit={handleConfirmAccept} className="space-y-4">
+                <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase ml-1">Seu Nome</label>
+                    <div className="relative">
+                        <User size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input 
+                            type="text" 
+                            required
+                            value={approverName}
+                            onChange={(e) => setApproverName(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 pr-4 text-slate-700 focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all"
+                            placeholder="Nome Completo"
+                        />
+                    </div>
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase ml-1">Seu CPF</label>
+                    <input 
+                        type="text" 
+                        required
+                        value={approverCpf}
+                        onChange={(e) => setApproverCpf(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-slate-700 focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all"
+                        placeholder="000.000.000-00"
+                    />
+                </div>
+
+                <div className="pt-4 flex gap-3">
+                    <button 
+                        type="button"
+                        onClick={() => setShowAcceptModal(false)}
+                        className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors"
+                    >
+                        Cancelar
+                    </button>
+                    <button 
+                        type="submit"
+                        disabled={isProcessing}
+                        className="flex-1 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors shadow-lg shadow-green-600/20"
+                    >
+                        {isProcessing ? 'Processando...' : 'Confirmar'}
+                    </button>
+                </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

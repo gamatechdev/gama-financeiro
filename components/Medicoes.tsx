@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { Cliente, FinanceiroReceita } from '../types';
 import { 
   Building2, Search, ChevronRight, ArrowLeft, Calendar, 
-  CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy 
+  CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle 
 } from 'lucide-react';
 
 const Medicoes: React.FC = () => {
@@ -173,26 +173,41 @@ const Medicoes: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleGenerateLink = () => {
+  const handleGenerateLink = async () => {
     if (!selectedCliente) return;
 
-    // We use the selected month (even if in 'recent' view, we default to the state month or current)
-    // For 'recent', it might be ambiguous, so let's force using the `selectedMonth` state which holds a YYYY-MM
-    // Or if in recent mode, default to current month for the link.
-    const targetMonth = viewMode === 'monthly' ? selectedMonth : new Date().toISOString().slice(0, 7);
+    try {
+        // Update status to "Aguardando" in Supabase
+        const { error } = await supabase
+            .from('clientes')
+            .update({ status_medicao: 'Aguardando' })
+            .eq('id', selectedCliente.id);
 
-    const payload = {
-      clientId: selectedCliente.id,
-      month: targetMonth
-    };
+        if (error) throw error;
 
-    // Encode payload to Base64
-    const encodedData = btoa(JSON.stringify(payload));
-    const baseUrl = window.location.origin;
-    const link = `${baseUrl}?action=medicao&data=${encodedData}`;
+        // Update local state for immediate UI feedback
+        const updatedClient = { ...selectedCliente, status_medicao: 'Aguardando' };
+        setSelectedCliente(updatedClient);
+        setClientes(prev => prev.map(c => c.id === selectedCliente.id ? updatedClient : c));
 
-    setGeneratedLink(link);
-    setIsShareModalOpen(true);
+        // Generate Link
+        const targetMonth = viewMode === 'monthly' ? selectedMonth : new Date().toISOString().slice(0, 7);
+        const payload = {
+            clientId: selectedCliente.id,
+            month: targetMonth
+        };
+
+        const encodedData = btoa(JSON.stringify(payload));
+        const baseUrl = window.location.origin;
+        const link = `${baseUrl}?action=medicao&data=${encodedData}`;
+
+        setGeneratedLink(link);
+        setIsShareModalOpen(true);
+
+    } catch (err) {
+        console.error("Error generating link:", err);
+        alert("Erro ao gerar link e atualizar status.");
+    }
   };
 
   const copyToClipboard = () => {
@@ -319,6 +334,20 @@ const Medicoes: React.FC = () => {
     return 'text-blue-600 bg-blue-100 border-blue-200';
   };
 
+  // Helper for Medição Status Logic
+  const getMedicaoStatusInfo = (status: string | null | undefined) => {
+      switch (status) {
+          case 'Aceita':
+              return { label: 'Medição Aceita', color: 'bg-green-100 text-green-700 border-green-200', icon: <CheckCircle size={14} /> };
+          case 'Recusada':
+              return { label: 'Medição Recusada', color: 'bg-red-100 text-red-700 border-red-200', icon: <XCircle size={14} /> };
+          case 'Aguardando':
+              return { label: 'Aguardando Aprovação', color: 'bg-orange-100 text-orange-700 border-orange-200', icon: <Clock size={14} /> };
+          default:
+              return { label: 'Não enviada', color: 'bg-yellow-100 text-yellow-700 border-yellow-200', icon: <AlertCircle size={14} /> };
+      }
+  };
+
   // Filter Clients
   const filteredClientes = useMemo(() => {
     return clientes.filter(c => 
@@ -370,35 +399,44 @@ const Medicoes: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredClientes.map((cliente) => (
-              <div 
-                key={cliente.id} 
-                onClick={() => setSelectedCliente(cliente)}
-                className="glass-panel p-6 rounded-[24px] relative group hover:bg-white/80 transition-all hover:translate-y-[-4px] duration-300 cursor-pointer border border-white/60"
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center shadow-sm">
-                    <Building2 size={24} />
-                  </div>
-                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                    <ChevronRight size={18} />
-                  </div>
-                </div>
-                
-                <h3 className="text-lg font-bold text-slate-800 line-clamp-1" title={cliente.nome_fantasia}>
-                  {cliente.nome_fantasia || 'Sem Nome Fantasia'}
-                </h3>
-                <p className="text-sm text-slate-500 line-clamp-1 mb-4">
-                  {cliente.razao_social || 'Razão Social não informada'}
-                </p>
+            {filteredClientes.map((cliente) => {
+               const statusInfo = getMedicaoStatusInfo(cliente.status_medicao);
 
-                <div className="pt-4 border-t border-slate-100">
-                  <span className="text-xs font-semibold text-blue-500 uppercase tracking-wide">
-                    Ver Medições
-                  </span>
+               return (
+                <div 
+                  key={cliente.id} 
+                  onClick={() => setSelectedCliente(cliente)}
+                  className="glass-panel p-6 rounded-[24px] relative group hover:bg-white/80 transition-all hover:translate-y-[-4px] duration-300 cursor-pointer border border-white/60"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center shadow-sm">
+                      <Building2 size={24} />
+                    </div>
+                    {/* Status Badge */}
+                    <div className={`px-2 py-1 rounded-lg border flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide ${statusInfo.color}`}>
+                        {statusInfo.icon}
+                        {statusInfo.label}
+                    </div>
+                  </div>
+                  
+                  <h3 className="text-lg font-bold text-slate-800 line-clamp-1" title={cliente.nome_fantasia}>
+                    {cliente.nome_fantasia || 'Sem Nome Fantasia'}
+                  </h3>
+                  <p className="text-sm text-slate-500 line-clamp-1 mb-4">
+                    {cliente.razao_social || 'Razão Social não informada'}
+                  </p>
+
+                  <div className="pt-4 border-t border-slate-100 flex justify-between items-center">
+                    <span className="text-xs font-semibold text-blue-500 uppercase tracking-wide">
+                      Ver Medições
+                    </span>
+                    <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                      <ChevronRight size={18} />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -406,6 +444,8 @@ const Medicoes: React.FC = () => {
   }
 
   // --- VIEW 2: CLIENT DETAILS ---
+  const detailStatusInfo = getMedicaoStatusInfo(selectedCliente.status_medicao);
+
   return (
     <div className="p-6 relative min-h-full space-y-6">
       
@@ -423,30 +463,26 @@ const Medicoes: React.FC = () => {
             <ArrowLeft size={20} />
           </button>
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-slate-800">
-              {selectedCliente.nome_fantasia || selectedCliente.razao_social}
-            </h2>
-            <p className="text-slate-500 text-sm">Histórico de Receitas e Medições</p>
+            <div className="flex items-center gap-3">
+               <h2 className="text-2xl font-bold tracking-tight text-slate-800">
+                {selectedCliente.nome_fantasia || selectedCliente.razao_social}
+               </h2>
+               <div className={`px-2.5 py-1 rounded-full border flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${detailStatusInfo.color}`}>
+                    {detailStatusInfo.icon}
+                    {detailStatusInfo.label}
+               </div>
+            </div>
+            <p className="text-slate-500 text-sm mt-1">Histórico de Receitas e Medições</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={handleGenerateLink}
-            className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-3 rounded-full font-medium transition-all flex items-center gap-2 shadow-sm"
-          >
-            <Share2 size={18} />
-            Gerar Link
-          </button>
-          
-          <button 
-            onClick={handleOpenNew}
-            className="bg-slate-900 hover:bg-slate-800 text-white px-5 py-3 rounded-full font-medium shadow-lg shadow-slate-900/20 transition-all flex items-center gap-2"
-          >
-            <Plus size={20} />
-            Nova Medição
-          </button>
-        </div>
+        <button 
+          onClick={handleOpenNew}
+          className="bg-slate-900 hover:bg-slate-800 text-white px-5 py-3 rounded-full font-medium shadow-lg shadow-slate-900/20 transition-all flex items-center gap-2"
+        >
+          <Plus size={20} />
+          Nova Receita
+        </button>
       </div>
 
       {/* Date Filter Controls */}
@@ -583,71 +619,84 @@ const Medicoes: React.FC = () => {
           </span>
         </div>
 
-        {loadingReceitas ? (
-          <div className="flex justify-center py-10">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-          </div>
-        ) : clienteReceitas.length === 0 ? (
-          <div className="p-10 text-center text-slate-500">
-            Nenhuma receita encontrada neste período.
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100/50">
-            {clienteReceitas.map((receita) => {
-               const statusStyle = getStatusColor(receita.status, receita.data_projetada);
-               const statusLabel = receita.status === 'Pago' ? 'Pago' : 'Pendente';
+        <div className="max-h-[500px] overflow-y-auto custom-scrollbar">
+          {loadingReceitas ? (
+            <div className="flex justify-center py-10">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+            </div>
+          ) : clienteReceitas.length === 0 ? (
+            <div className="p-10 text-center text-slate-500">
+              Nenhuma receita encontrada neste período.
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100/50">
+              {clienteReceitas.map((receita) => {
+                 const statusStyle = getStatusColor(receita.status, receita.data_projetada);
+                 const statusLabel = receita.status === 'Pago' ? 'Pago' : 'Pendente';
 
-               return (
-                <div key={receita.id} className="p-4 hover:bg-white/50 transition-colors flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                       <span className="font-semibold text-slate-800">
-                         {formatCurrency(receita.valor_total)}
-                       </span>
-                       {receita.qnt_parcela && receita.qnt_parcela > 1 && (
-                         <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">
-                           {receita.qnt_parcela}x
+                 return (
+                  <div key={receita.id} className="p-4 hover:bg-white/50 transition-colors flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                         <span className="font-semibold text-slate-800">
+                           {formatCurrency(receita.valor_total)}
                          </span>
-                       )}
-                    </div>
-                    <p className="text-sm text-slate-500 line-clamp-1">
-                      {receita.descricao || 'Sem descrição'}
-                    </p>
-                    <div className="flex items-center gap-4 mt-2">
-                      <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                        <Calendar size={12} />
-                        <span>Venc: {formatDate(receita.data_projetada)}</span>
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        Resp: {receita.empresa_resp}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    {receita.status?.toLowerCase() !== 'pago' && (
-                        <button 
-                          onClick={() => handleMarkAsPaid(receita)}
-                          className="group h-8 bg-green-500 hover:bg-green-600 text-white rounded-full flex items-center transition-all duration-300 shadow-lg shadow-green-500/30 overflow-hidden w-8 hover:w-[140px]"
-                          title="Confirmar Pagamento"
-                        >
-                           <div className="w-8 h-8 flex items-center justify-center shrink-0">
-                              <Check size={16} strokeWidth={3} />
-                           </div>
-                           <span className="opacity-0 group-hover:opacity-100 whitespace-nowrap text-xs font-bold pr-3 transition-opacity duration-300 delay-75">
-                              Confirmar
+                         {receita.qnt_parcela && receita.qnt_parcela > 1 && (
+                           <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">
+                             {receita.qnt_parcela}x
                            </span>
-                        </button>
-                    )}
-                    <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${statusStyle}`}>
-                      {statusLabel}
+                         )}
+                      </div>
+                      <p className="text-sm text-slate-500 line-clamp-1">
+                        {receita.descricao || 'Sem descrição'}
+                      </p>
+                      <div className="flex items-center gap-4 mt-2">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                          <Calendar size={12} />
+                          <span>Venc: {formatDate(receita.data_projetada)}</span>
+                        </div>
+                        <div className="text-xs text-slate-400">
+                          Resp: {receita.empresa_resp}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {receita.status?.toLowerCase() !== 'pago' && (
+                          <button 
+                            onClick={() => handleMarkAsPaid(receita)}
+                            className="group h-8 bg-green-500 hover:bg-green-600 text-white rounded-full flex items-center transition-all duration-300 shadow-lg shadow-green-500/30 overflow-hidden w-8 hover:w-[140px]"
+                            title="Confirmar Pagamento"
+                          >
+                             <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                                <Check size={16} strokeWidth={3} />
+                             </div>
+                             <span className="opacity-0 group-hover:opacity-100 whitespace-nowrap text-xs font-bold pr-3 transition-opacity duration-300 delay-75">
+                                Confirmar
+                             </span>
+                          </button>
+                      )}
+                      <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${statusStyle}`}>
+                        {statusLabel}
+                      </div>
                     </div>
                   </div>
-                </div>
-               );
-            })}
-          </div>
-        )}
+                 );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Footer with Generate Link Button */}
+        <div className="p-4 border-t border-white/50 bg-slate-50/50 flex justify-end">
+            <button 
+              onClick={handleGenerateLink}
+              className="bg-white border border-slate-200 hover:bg-slate-50 hover:border-blue-200 hover:text-blue-600 text-slate-700 px-4 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2 shadow-sm text-sm"
+            >
+              <Share2 size={16} />
+              Gerar Link de Medição
+            </button>
+        </div>
       </div>
 
       {/* NEW MODAL for Adding Revenue */}
@@ -773,7 +822,7 @@ const Medicoes: React.FC = () => {
               </div>
               <h3 className="text-xl font-bold text-slate-800">Link de Medição Gerado</h3>
               <p className="text-slate-500 text-sm mt-1">
-                Este link permite que o cliente visualize as receitas de <strong>{formatMonth(viewMode === 'monthly' ? selectedMonth : new Date().toISOString().slice(0, 7))}</strong> sem precisar de login.
+                O status da medição foi alterado para <strong className="text-orange-600">Aguardando Aprovação</strong>.
               </p>
             </div>
 
