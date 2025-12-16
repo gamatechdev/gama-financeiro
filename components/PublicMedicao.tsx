@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { FinanceiroReceita, Cliente } from '../types';
 import { 
   Layers, Calendar, CheckCircle, AlertCircle, Printer, Check, X, User, XCircle, 
-  QrCode, Copy, Barcode, Download, Smartphone, CreditCard, Stethoscope
+  QrCode, Copy, Barcode, Download, Smartphone, CreditCard, Stethoscope, ArrowRight, LayoutList
 } from 'lucide-react';
 
 interface PublicMedicaoProps {
@@ -111,7 +111,6 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
             data: new Date().toISOString()
         };
 
-        // Wrap approvalData in an array to fix "expected JSON array" error
         const payload = [approvalData];
 
         const { error } = await supabase
@@ -126,7 +125,6 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
         
         setCliente({ ...cliente, status_medicao: 'Aceita', aprovado_por: payload });
         setShowAcceptModal(false);
-        // Open Payment Modal immediately after acceptance
         setShowPaymentModal(true); 
     } catch (err) {
         console.error(err);
@@ -157,6 +155,17 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
     return dateStr;
   };
 
+  const formatDayMonth = (dateStr: string | null) => {
+     if (!dateStr) return '--/--';
+     const cleanDate = dateStr.split('T')[0];
+     const parts = cleanDate.split('-');
+     if (parts.length === 3) {
+       const [year, month, day] = parts;
+       return `${day}/${month}`;
+     }
+     return dateStr;
+  };
+
   const formatMonthFull = (isoMonth: string) => {
     if (!isoMonth) return '';
     const [year, month] = isoMonth.split('-');
@@ -165,48 +174,35 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
     return `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} de ${year}`;
   };
 
-  // Helper to safely get approver name whether it's an array or object
   const getApproverName = () => {
     if (!cliente?.aprovado_por) return 'Usuário';
-    
-    // Check if it's an array (new format)
     if (Array.isArray(cliente.aprovado_por)) {
        return cliente.aprovado_por[0]?.nome || 'Usuário';
     }
-    
-    // Fallback for object (legacy format)
     return cliente.aprovado_por?.nome || 'Usuário';
   };
 
   // --- Helper function to extract JUST the exam name cleanly ---
   const getCleanExamName = (item: any): string => {
       if (!item) return '';
-
-      // 1. If it's already a string
       if (typeof item === 'string') {
-          // Check if it's a JSON string by accident (starts with {)
           if (item.trim().startsWith('{')) {
               try {
                   const parsed = JSON.parse(item);
                   return parsed.name || parsed.nome || 'Exame sem nome';
               } catch (e) {
-                  return item; // Return raw string if parse fails
+                  return item; 
               }
           }
-          return item; // It's just a normal string
+          return item; 
       }
-
-      // 2. If it's an object
       if (typeof item === 'object') {
           return item.name || item.nome || 'Exame sem nome';
       }
-
       return 'Item desconhecido';
   };
 
   const total = receitas.reduce((acc, r) => acc + (r.valor_total || 0), 0);
-
-  // Mocks for payment
   const pixCode = "00020126580014BR.GOV.BCB.PIX0136123e4567-e89b-12d3-a456-426614174000520400005303986540510.005802BR5913GAMA MEDICINA6008BRASILIA62070503***6304E2CA";
   const boletoCode = "34191.79001 01043.510047 91020.150008 1 89450000015000";
 
@@ -241,221 +237,197 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
 
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4 md:px-8">
-      <div className="max-w-5xl mx-auto space-y-6">
-        
-        {/* Header Actions */}
-        <div className="flex justify-between items-center print:hidden">
-           <div className="flex items-center gap-2">
-             <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center text-white font-bold">
+      
+      {/* Top Bar */}
+      <div className="max-w-7xl mx-auto flex justify-between items-center mb-8 print:hidden">
+           <div className="flex items-center gap-3">
+             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-blue-500/20">
                G
              </div>
-             <span className="font-semibold text-slate-700">Gama Center</span>
+             <div>
+                <span className="font-bold text-slate-700 block text-lg leading-none">Gama Center</span>
+                <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Portal do Cliente</span>
+             </div>
            </div>
            <button 
              onClick={() => window.print()}
-             className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl hover:bg-slate-100 transition-colors shadow-sm font-medium text-sm"
+             className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl hover:bg-slate-100 transition-colors shadow-sm font-medium text-sm"
            >
-             <Printer size={16} /> Imprimir / Salvar PDF
+             <Printer size={16} /> <span className="hidden sm:inline">Imprimir / Salvar PDF</span>
            </button>
-        </div>
+      </div>
 
-        {/* Main Invoice Card */}
-        <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 overflow-hidden border border-slate-100 print:shadow-none print:border-none">
-          
-          {/* Top Banner */}
-          <div className="bg-slate-900 text-white p-8 md:p-10 relative overflow-hidden">
-             <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/20 rounded-full blur-3xl -mr-16 -mt-16"></div>
-             <div className="absolute bottom-0 left-0 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl -ml-16 -mb-16"></div>
-             
-             <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
-               <div>
-                 <div className="flex items-center gap-3 mb-2">
-                    <p className="text-blue-300 font-bold uppercase tracking-widest text-xs">Demonstrativo de Serviços</p>
-                    {isAccepted && <span className="px-2 py-0.5 rounded bg-green-500/20 border border-green-500/50 text-green-300 text-[10px] font-bold uppercase">Aprovado</span>}
-                    {isRejected && <span className="px-2 py-0.5 rounded bg-red-500/20 border border-red-500/50 text-red-300 text-[10px] font-bold uppercase">Recusado</span>}
-                 </div>
-                 <h1 className="text-3xl md:text-4xl font-bold">{cliente.nome_fantasia || cliente.razao_social}</h1>
-                 <p className="text-slate-400 mt-2 text-sm max-w-md">{cliente.razao_social}</p>
-               </div>
-               <div className="text-left md:text-right">
-                 <p className="text-slate-400 text-xs uppercase font-bold mb-1">Referência</p>
-                 <p className="text-2xl font-bold">{formatMonthFull(monthStr)}</p>
-               </div>
-             </div>
-          </div>
+      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        
+        {/* LEFT COLUMN: RESUMO DE ATENDIMENTOS (SIDEBAR) */}
+        <div className="lg:col-span-4 space-y-4 print:w-full">
+            <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                    <LayoutList size={16} /> Exames / Atendimentos
+                </h3>
+                <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-bold">{receitas.length}</span>
+            </div>
 
-          {/* Body */}
-          <div className="p-8 md:p-10">
-            
-            {/* Items Table */}
-            <div className="mb-10">
-              <div className="flex justify-between items-end mb-6">
-                  <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide">Detalhamento dos Atendimentos</h3>
-                  <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded-lg">{receitas.length} registros</span>
-              </div>
-              
-              <div className="space-y-8">
+            <div className="space-y-3">
                 {receitas.length === 0 ? (
-                  <p className="text-slate-400 py-10 text-center italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                      Nenhum registro encontrado para este mês.
-                  </p>
+                    <div className="p-6 text-center text-slate-400 bg-white rounded-2xl border border-dashed border-slate-200">
+                        Nenhum atendimento listado.
+                    </div>
                 ) : (
-                  receitas.map((receita) => (
-                    <div key={receita.id} className="bg-slate-50/50 border border-slate-200 rounded-2xl p-0 break-inside-avoid shadow-sm print:shadow-none print:border-slate-300 overflow-hidden">
-                        {/* Header Section of the Card */}
-                        <div className="p-6 pb-2">
-                          <div className="flex flex-col md:flex-row justify-between md:items-start gap-4 mb-4">
-                              <div className="flex-1">
-                                  <div className="flex items-center gap-2 mb-1">
-                                      <span className="font-bold text-slate-800 text-lg">{receita.descricao || 'Atendimento / Serviço'}</span>
-                                      {receita.qnt_parcela && receita.qnt_parcela > 1 && (
-                                          <span className="text-[10px] bg-white border border-slate-200 text-slate-500 px-2 py-0.5 rounded-full font-medium">
-                                              {receita.qnt_parcela}ª Parc.
-                                          </span>
-                                      )}
-                                  </div>
-                                  <p className="text-xs text-slate-500 flex items-center gap-1.5">
-                                      <User size={12} className="text-slate-400" />
-                                      Responsável: <span className="font-medium text-slate-600">{receita.empresa_resp}</span>
-                                  </p>
-                              </div>
-                              
-                              <div className="flex items-center gap-8 bg-white px-4 py-2 rounded-xl border border-slate-100">
-                                  <div className="text-right">
-                                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Vencimento</p>
-                                      <p className="text-sm font-semibold text-slate-700 flex items-center justify-end gap-1.5">
-                                          <Calendar size={14} className="text-slate-400" />
-                                          {formatDate(receita.data_projetada)}
-                                      </p>
-                                  </div>
-                                  <div className="text-right border-l border-slate-100 pl-6">
-                                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Valor</p>
-                                      <p className="text-lg font-bold text-slate-900">{formatCurrency(receita.valor_total)}</p>
-                                  </div>
-                              </div>
-                          </div>
-                        </div>
-
-                        {/* SEPARATE SECTION FOR EXAMS */}
-                        {receita.exames_snapshot && Array.isArray(receita.exames_snapshot) && receita.exames_snapshot.length > 0 && (
-                            <div className="px-6 pb-6 pt-2">
-                                <div className="border-t border-slate-200/60 pt-4">
-                                  <div className="flex items-center gap-2 mb-3">
-                                      <div className="p-1 bg-blue-100 rounded-md text-blue-600">
-                                        <Stethoscope size={14} />
-                                      </div>
-                                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                                        Exames Realizados
-                                      </p>
-                                  </div>
-                                  
-                                  <div className="bg-blue-50/30 rounded-xl p-4 border border-blue-100/50">
-                                    <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-y-2 gap-x-6">
-                                        {receita.exames_snapshot.map((item: any, idx: number) => {
-                                            const name = getCleanExamName(item);
-                                            return (
-                                                <li key={idx} className="flex items-start gap-2 text-xs font-semibold text-slate-600 leading-snug">
-                                                    <div className="mt-1.5 w-1 h-1 rounded-full bg-blue-400 shrink-0"></div>
-                                                    <span className="uppercase">{name}</span>
-                                                </li>
-                                            );
-                                        })}
-                                    </ul>
-                                  </div>
+                    receitas.map((receita) => (
+                        <div key={receita.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow flex justify-between items-center group">
+                            <div className="flex items-center gap-3 overflow-hidden">
+                                <div className="flex flex-col items-center justify-center w-10 h-10 bg-slate-50 rounded-lg text-slate-500 border border-slate-100 shrink-0">
+                                    <span className="text-[10px] font-bold uppercase">{formatDayMonth(receita.data_projetada).split('/')[1]}</span>
+                                    <span className="text-sm font-bold">{formatDayMonth(receita.data_projetada).split('/')[0]}</span>
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-sm font-bold text-slate-700 truncate group-hover:text-blue-600 transition-colors">
+                                        {receita.descricao || 'Serviço'}
+                                    </p>
+                                    <p className="text-xs text-slate-400 truncate">
+                                        {receita.empresa_resp}
+                                    </p>
                                 </div>
                             </div>
-                        )}
-                    </div>
-                  ))
+                            <div className="text-right pl-2">
+                                <p className="text-sm font-bold text-slate-800">{formatCurrency(receita.valor_total)}</p>
+                            </div>
+                        </div>
+                    ))
                 )}
-              </div>
+            </div>
+            
+            {/* Total Summary Sticky Card (Mobile only mostly, visible desktop too) */}
+            <div className="bg-slate-800 p-5 rounded-2xl text-white shadow-xl shadow-slate-900/10 mt-4">
+                 <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Geral</span>
+                    <span className="text-2xl font-bold">{formatCurrency(total)}</span>
+                 </div>
+            </div>
+        </div>
+
+        {/* RIGHT COLUMN: DETAILED INVOICE */}
+        <div className="lg:col-span-8 space-y-6">
+            
+            {/* Invoice Header */}
+            <div className="bg-white rounded-[32px] shadow-xl shadow-slate-200/50 overflow-hidden border border-slate-100 print:shadow-none print:border-none relative">
+                 <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-8 relative overflow-hidden">
+                    <div className="relative z-10">
+                        <div className="flex items-center gap-3 mb-4">
+                            {isAccepted && <span className="px-2 py-0.5 rounded bg-green-500/20 border border-green-500/50 text-green-300 text-[10px] font-bold uppercase flex items-center gap-1"><Check size={10} /> Aprovado</span>}
+                            {isRejected && <span className="px-2 py-0.5 rounded bg-red-500/20 border border-red-500/50 text-red-300 text-[10px] font-bold uppercase flex items-center gap-1"><X size={10} /> Recusado</span>}
+                            {isPending && <span className="px-2 py-0.5 rounded bg-blue-500/20 border border-blue-500/50 text-blue-300 text-[10px] font-bold uppercase flex items-center gap-1">Pendente</span>}
+                        </div>
+                        <h1 className="text-3xl font-bold">{cliente.nome_fantasia || cliente.razao_social}</h1>
+                        <p className="text-slate-400 text-sm mt-1">{cliente.razao_social}</p>
+                        
+                        <div className="mt-6 flex flex-wrap gap-6 border-t border-white/10 pt-6">
+                            <div>
+                                <p className="text-xs text-slate-500 uppercase font-bold mb-1">Referência</p>
+                                <p className="text-lg font-semibold">{formatMonthFull(monthStr)}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-slate-500 uppercase font-bold mb-1">Vencimento Geral</p>
+                                <p className="text-lg font-semibold">{formatDate(receitas[0]?.data_projetada || null)}</p>
+                            </div>
+                        </div>
+                    </div>
+                 </div>
+
+                 <div className="p-8">
+                     <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide mb-6">Detalhamento dos Serviços</h3>
+                     
+                     <div className="space-y-6">
+                        {receitas.map((receita) => (
+                            <div key={receita.id} className="border-b border-slate-100 last:border-0 pb-6 last:pb-0">
+                                <div className="flex justify-between items-start mb-3">
+                                    <div>
+                                        <h4 className="font-bold text-slate-800 text-lg">{receita.descricao || 'Atendimento'}</h4>
+                                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                                            <span className="flex items-center gap-1"><User size={12}/> {receita.empresa_resp}</span>
+                                            <span>•</span>
+                                            <span>{formatDate(receita.data_projetada)}</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="block font-bold text-slate-700">{formatCurrency(receita.valor_total)}</span>
+                                    </div>
+                                </div>
+
+                                {receita.exames_snapshot && Array.isArray(receita.exames_snapshot) && receita.exames_snapshot.length > 0 && (
+                                    <div className="bg-slate-50 rounded-xl p-4 mt-3">
+                                        <div className="flex items-center gap-2 mb-3 text-slate-400">
+                                            <Stethoscope size={14} />
+                                            <span className="text-[10px] font-bold uppercase tracking-widest">Exames Realizados</span>
+                                        </div>
+                                        <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                            {receita.exames_snapshot.map((item: any, idx: number) => {
+                                                const name = getCleanExamName(item);
+                                                return (
+                                                    <li key={idx} className="flex items-start gap-2 text-xs font-semibold text-slate-600">
+                                                        <div className="mt-1.5 w-1 h-1 rounded-full bg-blue-400 shrink-0"></div>
+                                                        <span className="uppercase">{name}</span>
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                     </div>
+                 </div>
             </div>
 
-            {/* Total Footer */}
-            <div className="bg-slate-900 rounded-2xl p-8 flex flex-col md:flex-row justify-between items-center gap-6 text-white shadow-xl shadow-slate-900/10">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-white/10 rounded-xl">
-                    <Layers size={24} className="text-blue-300" />
-                </div>
-                <div>
-                    <p className="text-sm font-medium text-slate-300">Resumo do Período</p>
-                    <p className="text-xs text-slate-400">Total de {receitas.length} atendimentos registrados</p>
-                </div>
-              </div>
-              <div className="text-center md:text-right">
-                <p className="text-xs font-bold text-blue-300 uppercase tracking-widest mb-1">Valor Total a Pagar</p>
-                <p className="text-4xl font-bold tracking-tight">{formatCurrency(total)}</p>
-              </div>
-            </div>
-
-            {/* Approval Actions or Status Banner */}
-            <div className="mt-8 print:hidden">
+            {/* Actions Section */}
+            <div className="print:hidden">
                 {isPending && (
-                    <div className="flex flex-col md:flex-row gap-4 justify-end">
-                        <button 
-                            onClick={handleReject}
-                            disabled={isProcessing}
-                            className="px-6 py-3 rounded-xl border border-red-200 text-red-600 font-bold hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
-                        >
-                            <X size={18} /> Recusar Medição
-                        </button>
-                        <button 
-                            onClick={() => setShowAcceptModal(true)}
-                            disabled={isProcessing}
-                            className="px-6 py-3 rounded-xl bg-green-600 text-white font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-600/20 flex items-center justify-center gap-2"
-                        >
-                            <Check size={18} /> Aprovar Medição
-                        </button>
+                    <div className="bg-white p-6 rounded-[24px] shadow-lg border border-slate-100">
+                        <h4 className="font-bold text-slate-800 mb-4">Ações da Medição</h4>
+                        <div className="flex flex-col md:flex-row gap-4">
+                            <button 
+                                onClick={handleReject}
+                                disabled={isProcessing}
+                                className="flex-1 px-6 py-4 rounded-xl border border-red-200 text-red-600 font-bold hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
+                            >
+                                <X size={18} /> Recusar e Solicitar Correção
+                            </button>
+                            <button 
+                                onClick={() => setShowAcceptModal(true)}
+                                disabled={isProcessing}
+                                className="flex-[2] px-6 py-4 rounded-xl bg-green-600 text-white font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-600/20 flex items-center justify-center gap-2"
+                            >
+                                <Check size={18} /> Aprovar Medição
+                            </button>
+                        </div>
                     </div>
                 )}
 
                 {isAccepted && (
-                     <div className="flex flex-col md:flex-row justify-between gap-4 animate-fadeIn">
-                         <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex flex-col md:flex-row items-center gap-4 text-center md:text-left flex-1">
+                     <div className="bg-white p-6 rounded-[24px] shadow-lg border border-green-100 flex flex-col md:flex-row justify-between items-center gap-6 animate-fadeIn">
+                         <div className="flex items-center gap-4">
                             <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center shrink-0">
                                 <CheckCircle size={24} />
                             </div>
                             <div>
-                                <h4 className="font-bold text-green-800">Medição Aprovada</h4>
+                                <h4 className="font-bold text-green-800">Aprovado</h4>
                                 <p className="text-sm text-green-600">
-                                    Aprovado por <strong>{getApproverName()}</strong>.
+                                    Por <strong>{getApproverName()}</strong>.
                                 </p>
                             </div>
                          </div>
                          <button 
                             onClick={() => setShowPaymentModal(true)}
-                            className="px-6 py-4 rounded-2xl bg-slate-900 text-white font-bold hover:bg-slate-800 transition-colors shadow-lg flex items-center justify-center gap-2 md:w-auto w-full"
+                            className="px-8 py-4 rounded-xl bg-slate-900 text-white font-bold hover:bg-slate-800 transition-colors shadow-lg flex items-center gap-2 w-full md:w-auto justify-center"
                          >
                             <CreditCard size={20} />
-                            Realizar Pagamento
+                            Pagar Agora
                          </button>
                      </div>
                 )}
-
-                {isRejected && (
-                     <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex flex-col md:flex-row items-center gap-4 text-center md:text-left animate-fadeIn">
-                        <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
-                            <XCircle size={24} />
-                        </div>
-                        <div>
-                            <h4 className="font-bold text-red-800">Medição Recusada</h4>
-                            <p className="text-sm text-red-600">
-                                O cliente apontou divergências nesta medição. Entre em contato para regularizar.
-                            </p>
-                        </div>
-                     </div>
-                )}
             </div>
 
-            {/* Note */}
-            <div className="mt-10 text-center border-t border-slate-100 pt-8">
-               <p className="text-xs text-slate-400 max-w-lg mx-auto">
-                 Este documento é um demonstrativo de conferência gerado eletronicamente pelo sistema Gama Center. 
-                 Dúvidas entrar em contato com o financeiro.
-               </p>
-            </div>
-
-          </div>
         </div>
       </div>
 
@@ -542,7 +514,6 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
                  {paymentMethod === 'pix' && (
                     <div className="flex flex-col items-center animate-fadeIn">
                        <div className="bg-white p-4 border border-slate-200 rounded-2xl shadow-sm mb-4">
-                          {/* Using a placeholder QR code service for the mockup */}
                           <img 
                             src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(pixCode)}`} 
                             alt="QR Code Pix" 
@@ -573,7 +544,6 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
                     <div className="flex flex-col items-center animate-fadeIn">
                        <div className="w-full bg-white border border-slate-200 rounded-2xl p-6 mb-6 relative overflow-hidden group">
                           <div className="h-16 w-full flex items-center justify-center bg-slate-100 rounded mb-4 overflow-hidden relative">
-                             {/* CSS Barcode Mockup */}
                              <div className="font-mono tracking-[0.2em] text-slate-400 text-4xl scale-y-150 select-none opacity-50">||| ||| || | |</div>
                           </div>
                           
