@@ -5,13 +5,14 @@ import Receitas from './components/Receitas';
 import Despesas from './components/Despesas';
 import Dashboard from './components/Dashboard';
 import Medicoes from './components/Medicoes';
-import PublicMedicao from './components/PublicMedicao'; // Import new component
-import { LayoutDashboard, Wallet, LogOut, User as UserIcon, TrendingDown, FileText } from 'lucide-react';
+import PrecoExames from './components/PrecoExames'; // Import new component
+import PublicMedicao from './components/PublicMedicao'; 
+import { LayoutDashboard, Wallet, LogOut, User as UserIcon, TrendingDown, FileText, Tag } from 'lucide-react';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'receitas' | 'despesas' | 'medicoes'>('receitas');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'receitas' | 'despesas' | 'medicoes' | 'precos'>('receitas');
 
   // Logic for Public Links (e.g. Shared Measurements)
   // Check this BEFORE auth logic to allow public access
@@ -101,6 +102,13 @@ const App: React.FC = () => {
               <FileText size={22} />
               <span className="hidden lg:block">Medições</span>
             </button>
+            <button 
+              onClick={() => setActiveTab('precos')}
+              className={`w-full p-3 rounded-2xl flex items-center gap-3 transition-all ${activeTab === 'precos' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
+            >
+              <Tag size={22} />
+              <span className="hidden lg:block">Preço Exames</span>
+            </button>
           </nav>
         </div>
 
@@ -137,6 +145,7 @@ const App: React.FC = () => {
           {activeTab === 'despesas' && <Despesas />}
           {activeTab === 'medicoes' && <Medicoes />}
           {activeTab === 'dashboard' && <Dashboard />}
+          {activeTab === 'precos' && <PrecoExames />}
         </div>
       </main>
     </div>

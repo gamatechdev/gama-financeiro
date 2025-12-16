@@ -215,7 +215,7 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
 
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4 md:px-8">
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-5xl mx-auto space-y-6">
         
         {/* Header Actions */}
         <div className="flex justify-between items-center print:hidden">
@@ -263,66 +263,71 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
             
             {/* Items Table */}
             <div className="mb-10">
-              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide mb-6">Detalhamento</h3>
-              
-              <div className="hidden md:grid grid-cols-12 gap-4 pb-4 border-b border-slate-100 text-xs font-bold text-slate-400 uppercase">
-                <div className="col-span-6">Descrição</div>
-                <div className="col-span-3 text-center">Vencimento</div>
-                <div className="col-span-3 text-right">Valor</div>
+              <div className="flex justify-between items-end mb-6">
+                  <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide">Detalhamento dos Atendimentos</h3>
+                  <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded-lg">{receitas.length} registros</span>
               </div>
-
-              <div className="space-y-4 md:space-y-0 mt-4 md:mt-0">
+              
+              <div className="space-y-6">
                 {receitas.length === 0 ? (
-                  <p className="text-slate-400 py-4 italic">Nenhum registro encontrado para este mês.</p>
+                  <p className="text-slate-400 py-10 text-center italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                      Nenhum registro encontrado para este mês.
+                  </p>
                 ) : (
                   receitas.map((receita) => (
-                    <div key={receita.id} className="border-b border-slate-50 py-4">
-                        <div className="grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 items-center">
-                          <div className="col-span-6">
-                            <p className="font-bold text-slate-700 text-sm md:text-base">
-                              {receita.descricao || 'Serviços Prestados'}
-                            </p>
-                            <p className="text-xs text-slate-400 mt-1">
-                              Responsável: {receita.empresa_resp}
-                              {receita.qnt_parcela && receita.qnt_parcela > 1 && ` • Parcela ${receita.qnt_parcela}x`}
-                            </p>
-                          </div>
-                          <div className="col-span-3 flex items-center md:justify-center gap-2 text-slate-500 text-sm">
-                            <Calendar size={14} className="md:hidden" />
-                            {formatDate(receita.data_projetada)}
-                          </div>
-                          <div className="col-span-3 text-left md:text-right font-bold text-slate-800">
-                            {formatCurrency(receita.valor_total)}
-                          </div>
+                    <div key={receita.id} className="bg-slate-50/50 border border-slate-200 rounded-2xl p-6 break-inside-avoid shadow-sm print:shadow-none print:border-slate-300">
+                        {/* Header Section of the Card */}
+                        <div className="flex flex-col md:flex-row justify-between md:items-start gap-4 mb-5">
+                             <div className="flex-1">
+                                 <div className="flex items-center gap-2 mb-1">
+                                    <span className="font-bold text-slate-800 text-lg">{receita.descricao || 'Atendimento / Serviço'}</span>
+                                    {receita.qnt_parcela && receita.qnt_parcela > 1 && (
+                                        <span className="text-[10px] bg-white border border-slate-200 text-slate-500 px-2 py-0.5 rounded-full font-medium">
+                                            {receita.qnt_parcela}ª Parc.
+                                        </span>
+                                    )}
+                                 </div>
+                                 <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                                    <User size={12} className="text-slate-400" />
+                                    Responsável: <span className="font-medium text-slate-600">{receita.empresa_resp}</span>
+                                 </p>
+                             </div>
+                             
+                             <div className="flex items-center gap-8 bg-white px-4 py-2 rounded-xl border border-slate-100">
+                                 <div className="text-right">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Vencimento</p>
+                                    <p className="text-sm font-semibold text-slate-700 flex items-center justify-end gap-1.5">
+                                        <Calendar size={14} className="text-slate-400" />
+                                        {formatDate(receita.data_projetada)}
+                                    </p>
+                                 </div>
+                                 <div className="text-right border-l border-slate-100 pl-6">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Valor</p>
+                                    <p className="text-lg font-bold text-slate-900">{formatCurrency(receita.valor_total)}</p>
+                                 </div>
+                             </div>
                         </div>
 
-                        {/* Snapshot Detail View */}
+                        {/* Exam List Section - Clean List */}
                         {receita.exames_snapshot && Array.isArray(receita.exames_snapshot) && receita.exames_snapshot.length > 0 && (
-                            <div className="mt-3 bg-slate-50/80 rounded-xl p-4 border border-slate-100">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <div className="p-1 bg-blue-100 text-blue-600 rounded-lg">
-                                        <Stethoscope size={14} />
-                                    </div>
-                                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Detalhamento de Exames</p>
+                            <div className="bg-white rounded-xl border border-slate-200/60 p-5 relative">
+                                <div className="absolute top-0 left-5 -translate-y-1/2 bg-slate-50 border border-slate-200 text-[10px] font-bold text-slate-500 uppercase px-2 py-0.5 rounded-full flex items-center gap-1">
+                                   <Stethoscope size={10} className="text-blue-500" />
+                                   Exames Realizados
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                    {receita.exames_snapshot.map((item: any, idx: number) => {
-                                        // Handle both string (legacy) and object {name, value} formats
-                                        const name = typeof item === 'string' ? item : item.name;
-                                        const value = typeof item === 'object' && item.value ? parseFloat(item.value) : 0;
 
+                                <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-2 mt-1">
+                                    {receita.exames_snapshot.map((item: any, idx: number) => {
+                                        // Ensure we only get the name string
+                                        const name = typeof item === 'string' ? item : (item.name || 'Exame sem nome');
                                         return (
-                                            <div key={idx} className="flex justify-between items-center bg-white p-2 rounded-lg border border-slate-100 shadow-sm">
-                                                <span className="text-xs text-slate-600 font-medium truncate pr-2" title={name}>{name}</span>
-                                                {value > 0 && (
-                                                    <span className="text-xs font-bold text-slate-800 bg-slate-50 px-2 py-0.5 rounded-md">
-                                                        {formatCurrency(value)}
-                                                    </span>
-                                                )}
-                                            </div>
+                                            <li key={idx} className="text-xs text-slate-600 flex items-start gap-2.5 leading-relaxed">
+                                                <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"></div>
+                                                <span className="uppercase font-medium tracking-tight">{name}</span>
+                                            </li>
                                         );
                                     })}
-                                </div>
+                                </ul>
                             </div>
                         )}
                     </div>
@@ -332,14 +337,19 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
             </div>
 
             {/* Total Footer */}
-            <div className="bg-slate-50 rounded-2xl p-6 flex flex-col md:flex-row justify-between items-center gap-4">
-              <div className="flex items-center gap-3 text-slate-500 text-sm">
-                <Layers size={18} />
-                <span>Total de <strong>{receitas.length}</strong> lançamentos no período</span>
+            <div className="bg-slate-900 rounded-2xl p-8 flex flex-col md:flex-row justify-between items-center gap-6 text-white shadow-xl shadow-slate-900/10">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-white/10 rounded-xl">
+                    <Layers size={24} className="text-blue-300" />
+                </div>
+                <div>
+                    <p className="text-sm font-medium text-slate-300">Resumo do Período</p>
+                    <p className="text-xs text-slate-400">Total de {receitas.length} atendimentos registrados</p>
+                </div>
               </div>
               <div className="text-center md:text-right">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">Valor Total</p>
-                <p className="text-3xl font-bold text-slate-900">{formatCurrency(total)}</p>
+                <p className="text-xs font-bold text-blue-300 uppercase tracking-widest mb-1">Valor Total a Pagar</p>
+                <p className="text-4xl font-bold tracking-tight">{formatCurrency(total)}</p>
               </div>
             </div>
 
@@ -365,7 +375,7 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
                 )}
 
                 {isAccepted && (
-                     <div className="flex flex-col md:flex-row justify-between gap-4">
+                     <div className="flex flex-col md:flex-row justify-between gap-4 animate-fadeIn">
                          <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex flex-col md:flex-row items-center gap-4 text-center md:text-left flex-1">
                             <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center shrink-0">
                                 <CheckCircle size={24} />
@@ -388,7 +398,7 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
                 )}
 
                 {isRejected && (
-                     <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex flex-col md:flex-row items-center gap-4 text-center md:text-left">
+                     <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex flex-col md:flex-row items-center gap-4 text-center md:text-left animate-fadeIn">
                         <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
                             <XCircle size={24} />
                         </div>
@@ -403,7 +413,7 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
             </div>
 
             {/* Note */}
-            <div className="mt-10 text-center">
+            <div className="mt-10 text-center border-t border-slate-100 pt-8">
                <p className="text-xs text-slate-400 max-w-lg mx-auto">
                  Este documento é um demonstrativo de conferência gerado eletronicamente pelo sistema Gama Center. 
                  Dúvidas entrar em contato com o financeiro.
