@@ -1,3 +1,4 @@
+
 export interface Cliente {
   id: string;
   nome_fantasia: string;
@@ -23,6 +24,7 @@ export interface FinanceiroReceita {
   descricao: string | null;
   clientes?: Cliente; // Direct join
   status: string | null;
+  exames_snapshot?: string[] | null; // Array de nomes de exames
   // Campos específicos de tipo de receita
   valor_med?: number | null;
   valor_esoc?: number | null;

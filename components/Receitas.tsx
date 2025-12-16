@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { FinanceiroReceita, Cliente } from '../types';
 import { 
   Plus, Trash2, Calendar, Building2, Layers, CheckCircle, 
-  X, Check, Search, Filter, TrendingUp, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, Edit, LayoutGrid, List 
+  X, Check, Search, Filter, TrendingUp, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, Edit, LayoutGrid, List, Stethoscope 
 } from 'lucide-react';
 
 const Receitas: React.FC = () => {
@@ -13,6 +13,9 @@ const Receitas: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  // Snapshot Item State for Editing
+  const [snapshotItems, setSnapshotItems] = useState<{name: string, value: string}[]>([]);
 
   // View Mode State
   const [viewMode, setViewMode] = useState<'cards' | 'rows'>('cards');
@@ -243,6 +246,7 @@ const Receitas: React.FC = () => {
 
   const handleOpenNew = () => {
     setEditingId(null);
+    setSnapshotItems([]);
     setFormData({
       empresa_resp: 'Gama Medicina',
       contratante: '',
@@ -257,6 +261,14 @@ const Receitas: React.FC = () => {
 
   const handleEdit = (receita: FinanceiroReceita) => {
     setEditingId(receita.id);
+    
+    // Check for exames_snapshot
+    if (receita.exames_snapshot && Array.isArray(receita.exames_snapshot) && receita.exames_snapshot.length > 0) {
+        setSnapshotItems(receita.exames_snapshot.map(name => ({ name, value: '' })));
+    } else {
+        setSnapshotItems([]);
+    }
+
     setFormData({
       empresa_resp: receita.empresa_resp || 'Gama Medicina',
       contratante: receita.contratante || '',
@@ -267,6 +279,23 @@ const Receitas: React.FC = () => {
       descricao: receita.descricao || ''
     });
     setIsModalOpen(true);
+  };
+
+  const handleSnapshotItemChange = (index: number, val: string) => {
+      const newItems = [...snapshotItems];
+      newItems[index].value = val;
+      setSnapshotItems(newItems);
+
+      // Recalculate total
+      const totalSum = newItems.reduce((acc, item) => {
+          const v = parseFloat(item.value);
+          return acc + (isNaN(v) ? 0 : v);
+      }, 0);
+
+      // Update main value form only if > 0 (to avoid overwriting with 0 if just initializing)
+      if (totalSum >= 0) {
+          setFormData(prev => ({ ...prev, valor_total: totalSum.toFixed(2) }));
+      }
   };
 
   const handleDelete = async (id: number) => {
@@ -815,7 +844,7 @@ const Receitas: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/10 backdrop-blur-md" onClick={() => setIsModalOpen(false)}></div>
           
-          <div className="glass-panel w-full max-w-lg rounded-[32px] relative z-10 p-8 animate-[scaleIn_0.2s_ease-out] bg-white/80 shadow-2xl border border-white/60">
+          <div className="glass-panel w-full max-w-lg rounded-[32px] relative z-10 p-8 animate-[scaleIn_0.2s_ease-out] bg-white/80 shadow-2xl border border-white/60 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-8">
               <div>
                 <h3 className="text-2xl font-bold text-slate-800">{editingId ? 'Editar Receita' : 'Nova Receita'}</h3>
@@ -871,9 +900,42 @@ const Receitas: React.FC = () => {
                 </div>
               </div>
 
+              {/* Snapshot Exams List (If Available) */}
+              {snapshotItems.length > 0 && (
+                  <div className="space-y-3 p-4 bg-slate-50/80 rounded-2xl border border-slate-100">
+                      <div className="flex items-center gap-2 text-slate-500 mb-2">
+                          <Stethoscope size={16} />
+                          <span className="text-xs font-bold uppercase tracking-wide">Detalhamento de Exames</span>
+                      </div>
+                      <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                          {snapshotItems.map((item, index) => (
+                              <div key={index} className="flex items-center gap-2">
+                                  <span className="text-xs font-medium text-slate-600 flex-1 truncate" title={item.name}>
+                                      {item.name}
+                                  </span>
+                                  <div className="relative w-28">
+                                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-bold">R$</span>
+                                      <input 
+                                          type="number" 
+                                          step="0.01"
+                                          placeholder="0.00"
+                                          value={item.value}
+                                          onChange={(e) => handleSnapshotItemChange(index, e.target.value)}
+                                          className="w-full bg-white border border-slate-200 rounded-lg py-1.5 pl-8 pr-2 text-xs font-bold text-right focus:outline-none focus:border-blue-400 transition-colors"
+                                      />
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                      <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
+                          <span className="text-[10px] text-slate-400">Soma automática aplicada ao total.</span>
+                      </div>
+                  </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Valor</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Valor Total</label>
                   <input 
                     type="number"
                     step="0.01"

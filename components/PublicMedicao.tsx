@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { FinanceiroReceita, Cliente } from '../types';
 import { 
   Layers, Calendar, CheckCircle, AlertCircle, Printer, Check, X, User, XCircle, 
-  QrCode, Copy, Barcode, Download, Smartphone, CreditCard
+  QrCode, Copy, Barcode, Download, Smartphone, CreditCard, Stethoscope
 } from 'lucide-react';
 
 interface PublicMedicaoProps {
@@ -276,23 +276,55 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
                   <p className="text-slate-400 py-4 italic">Nenhum registro encontrado para este mês.</p>
                 ) : (
                   receitas.map((receita) => (
-                    <div key={receita.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 py-4 border-b border-slate-50 items-center">
-                      <div className="col-span-6">
-                        <p className="font-bold text-slate-700 text-sm md:text-base">
-                          {receita.descricao || 'Serviços Prestados'}
-                        </p>
-                        <p className="text-xs text-slate-400 mt-1">
-                          Responsável: {receita.empresa_resp}
-                          {receita.qnt_parcela && receita.qnt_parcela > 1 && ` • Parcela ${receita.qnt_parcela}x`}
-                        </p>
-                      </div>
-                      <div className="col-span-3 flex items-center md:justify-center gap-2 text-slate-500 text-sm">
-                         <Calendar size={14} className="md:hidden" />
-                         {formatDate(receita.data_projetada)}
-                      </div>
-                      <div className="col-span-3 text-left md:text-right font-bold text-slate-800">
-                        {formatCurrency(receita.valor_total)}
-                      </div>
+                    <div key={receita.id} className="border-b border-slate-50 py-4">
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 items-center">
+                          <div className="col-span-6">
+                            <p className="font-bold text-slate-700 text-sm md:text-base">
+                              {receita.descricao || 'Serviços Prestados'}
+                            </p>
+                            <p className="text-xs text-slate-400 mt-1">
+                              Responsável: {receita.empresa_resp}
+                              {receita.qnt_parcela && receita.qnt_parcela > 1 && ` • Parcela ${receita.qnt_parcela}x`}
+                            </p>
+                          </div>
+                          <div className="col-span-3 flex items-center md:justify-center gap-2 text-slate-500 text-sm">
+                            <Calendar size={14} className="md:hidden" />
+                            {formatDate(receita.data_projetada)}
+                          </div>
+                          <div className="col-span-3 text-left md:text-right font-bold text-slate-800">
+                            {formatCurrency(receita.valor_total)}
+                          </div>
+                        </div>
+
+                        {/* Snapshot Detail View */}
+                        {receita.exames_snapshot && Array.isArray(receita.exames_snapshot) && receita.exames_snapshot.length > 0 && (
+                            <div className="mt-3 bg-slate-50/80 rounded-xl p-4 border border-slate-100">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="p-1 bg-blue-100 text-blue-600 rounded-lg">
+                                        <Stethoscope size={14} />
+                                    </div>
+                                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Detalhamento de Exames</p>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {receita.exames_snapshot.map((item: any, idx: number) => {
+                                        // Handle both string (legacy) and object {name, value} formats
+                                        const name = typeof item === 'string' ? item : item.name;
+                                        const value = typeof item === 'object' && item.value ? parseFloat(item.value) : 0;
+
+                                        return (
+                                            <div key={idx} className="flex justify-between items-center bg-white p-2 rounded-lg border border-slate-100 shadow-sm">
+                                                <span className="text-xs text-slate-600 font-medium truncate pr-2" title={name}>{name}</span>
+                                                {value > 0 && (
+                                                    <span className="text-xs font-bold text-slate-800 bg-slate-50 px-2 py-0.5 rounded-md">
+                                                        {formatCurrency(value)}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
                     </div>
                   ))
                 )}
