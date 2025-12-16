@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { Cliente, FinanceiroReceita } from '../types';
 import { 
   Building2, Search, ChevronRight, ArrowLeft, Calendar, 
-  CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle 
+  CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit 
 } from 'lucide-react';
 
 const Medicoes: React.FC = () => {
@@ -21,6 +21,9 @@ const Medicoes: React.FC = () => {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false); // Share Link Modal
   const [generatedLink, setGeneratedLink] = useState('');
   
+  // Edit State
+  const [editingId, setEditingId] = useState<number | null>(null);
+
   const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     empresa_resp: 'Gama Medicina',
@@ -162,6 +165,7 @@ const Medicoes: React.FC = () => {
   };
 
   const handleOpenNew = () => {
+    setEditingId(null);
     setFormData({
       empresa_resp: 'Gama Medicina',
       valor_total: '',
@@ -169,6 +173,19 @@ const Medicoes: React.FC = () => {
       data_projetada: '',
       data_executada: '',
       descricao: ''
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleEdit = (receita: FinanceiroReceita) => {
+    setEditingId(receita.id);
+    setFormData({
+      empresa_resp: receita.empresa_resp || 'Gama Medicina',
+      valor_total: receita.valor_total?.toString() || '',
+      qnt_parcela: receita.qnt_parcela?.toString() || '1',
+      data_projetada: receita.data_projetada ? receita.data_projetada.split('T')[0] : '',
+      data_executada: receita.data_executada ? receita.data_executada.split('T')[0] : '',
+      descricao: receita.descricao || ''
     });
     setIsModalOpen(true);
   };
@@ -225,48 +242,71 @@ const Medicoes: React.FC = () => {
       const totalValue = formData.valor_total ? parseFloat(formData.valor_total) : 0;
       const numInstallments = formData.qnt_parcela ? parseInt(formData.qnt_parcela) : 1;
       
-      const installmentValue = numInstallments > 0 ? totalValue / numInstallments : totalValue;
-      const payloads = [];
-
-      if (formData.data_projetada && numInstallments > 0) {
-        const [y, m, d] = formData.data_projetada.split('-').map(Number);
-        
-        for (let i = 0; i < numInstallments; i++) {
-          const dueDate = new Date(y, (m - 1) + i, d);
-          const dueDateStr = dueDate.toISOString().split('T')[0];
-
-          let desc = formData.descricao || '';
-          if (numInstallments > 1) {
-            desc = `${desc} (Parcela ${i + 1}/${numInstallments})`.trim();
-          }
-
-          payloads.push({
-            empresa_resp: formData.empresa_resp,
-            contratante: selectedCliente.id, // ID from the currently viewed client
-            valor_total: installmentValue,
-            qnt_parcela: numInstallments,
-            data_projetada: dueDateStr,
-            data_executada: formData.data_executada || null,
-            descricao: desc,
-            status: formData.data_executada ? 'Pago' : 'Pendente'
-          });
-        }
-      } else {
-          payloads.push({
+      // LOGIC FOR UPDATE (EDIT)
+      if (editingId) {
+         const payload = {
             empresa_resp: formData.empresa_resp,
             contratante: selectedCliente.id,
             valor_total: totalValue,
-            qnt_parcela: 1,
+            qnt_parcela: numInstallments,
             data_projetada: formData.data_projetada || null,
             data_executada: formData.data_executada || null,
             descricao: formData.descricao,
             status: formData.data_executada ? 'Pago' : 'Pendente'
-          });
+         };
+
+         const { error } = await supabase
+            .from('financeiro_receitas')
+            .update(payload)
+            .eq('id', editingId);
+
+         if (error) throw error;
+
+      } else {
+        // LOGIC FOR INSERT (CREATE)
+        const installmentValue = numInstallments > 0 ? totalValue / numInstallments : totalValue;
+        const payloads = [];
+
+        if (formData.data_projetada && numInstallments > 0) {
+          const [y, m, d] = formData.data_projetada.split('-').map(Number);
+          
+          for (let i = 0; i < numInstallments; i++) {
+            const dueDate = new Date(y, (m - 1) + i, d);
+            const dueDateStr = dueDate.toISOString().split('T')[0];
+
+            let desc = formData.descricao || '';
+            if (numInstallments > 1) {
+              desc = `${desc} (Parcela ${i + 1}/${numInstallments})`.trim();
+            }
+
+            payloads.push({
+              empresa_resp: formData.empresa_resp,
+              contratante: selectedCliente.id, // ID from the currently viewed client
+              valor_total: installmentValue,
+              qnt_parcela: numInstallments,
+              data_projetada: dueDateStr,
+              data_executada: formData.data_executada || null,
+              descricao: desc,
+              status: formData.data_executada ? 'Pago' : 'Pendente'
+            });
+          }
+        } else {
+            payloads.push({
+              empresa_resp: formData.empresa_resp,
+              contratante: selectedCliente.id,
+              valor_total: totalValue,
+              qnt_parcela: 1,
+              data_projetada: formData.data_projetada || null,
+              data_executada: formData.data_executada || null,
+              descricao: formData.descricao,
+              status: formData.data_executada ? 'Pago' : 'Pendente'
+            });
+        }
+
+        const { error } = await supabase.from('financeiro_receitas').insert(payloads);
+        if (error) throw error;
       }
 
-      const { error } = await supabase.from('financeiro_receitas').insert(payloads);
-      if (error) throw error;
-      
       setIsModalOpen(false);
       fetchReceitasDoCliente(); // Refresh list
 
@@ -676,6 +716,15 @@ const Medicoes: React.FC = () => {
                              </span>
                           </button>
                       )}
+                      
+                      <button 
+                         onClick={() => handleEdit(receita)}
+                         className="w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-400 flex items-center justify-center hover:text-blue-500 hover:border-blue-200 transition-all shadow-sm"
+                         title="Editar"
+                       >
+                         <Edit size={14} />
+                      </button>
+
                       <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${statusStyle}`}>
                         {statusLabel}
                       </div>
@@ -707,7 +756,7 @@ const Medicoes: React.FC = () => {
           <div className="glass-panel w-full max-w-lg rounded-[32px] relative z-10 p-8 animate-[scaleIn_0.2s_ease-out] bg-white/80 shadow-2xl border border-white/60">
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h3 className="text-2xl font-bold text-slate-800">Nova Medição</h3>
+                <h3 className="text-2xl font-bold text-slate-800">{editingId ? 'Editar Medição' : 'Nova Medição'}</h3>
                 <p className="text-slate-500 text-sm">Empresa: {selectedCliente.nome_fantasia}</p>
               </div>
               <button 
@@ -802,7 +851,7 @@ const Medicoes: React.FC = () => {
                 disabled={submitting}
                 className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20 active:scale-[0.98]"
               >
-                {submitting ? 'Salvando...' : 'Adicionar Medição'}
+                {submitting ? 'Salvando...' : (editingId ? 'Atualizar Medição' : 'Adicionar Medição')}
               </button>
 
             </form>

@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { FinanceiroReceita, Cliente } from '../types';
-import { Layers, Calendar, CheckCircle, AlertCircle, Printer, Check, X, User, XCircle } from 'lucide-react';
+import { 
+  Layers, Calendar, CheckCircle, AlertCircle, Printer, Check, X, User, XCircle, 
+  QrCode, Copy, Barcode, Download, Smartphone, CreditCard
+} from 'lucide-react';
 
 interface PublicMedicaoProps {
   dataToken: string;
@@ -17,8 +20,11 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
   // Approval Flow States
   const [showAcceptModal, setShowAcceptModal] = useState(false);
   const [approverName, setApproverName] = useState('');
-  const [approverCpf, setApproverCpf] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Payment Mockup States
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'pix' | 'boleto'>('pix');
 
   useEffect(() => {
     const loadData = async () => {
@@ -93,12 +99,15 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
   const handleConfirmAccept = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cliente) return;
+    if (!approverName.trim()) {
+      alert("Por favor, insira seu nome.");
+      return;
+    }
 
     setIsProcessing(true);
     try {
         const approvalData = {
             nome: approverName,
-            cpf: approverCpf,
             data: new Date().toISOString()
         };
 
@@ -114,13 +123,19 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
         
         setCliente({ ...cliente, status_medicao: 'Aceita', aprovado_por: approvalData });
         setShowAcceptModal(false);
-        alert("Medição aceita com sucesso!");
+        // Open Payment Modal immediately after acceptance
+        setShowPaymentModal(true); 
     } catch (err) {
         console.error(err);
         alert("Erro ao aceitar medição.");
     } finally {
         setIsProcessing(false);
     }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    alert("Código copiado!");
   };
 
   const formatCurrency = (val: number | null) => {
@@ -148,6 +163,10 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
   };
 
   const total = receitas.reduce((acc, r) => acc + (r.valor_total || 0), 0);
+
+  // Mocks for payment
+  const pixCode = "00020126580014BR.GOV.BCB.PIX0136123e4567-e89b-12d3-a456-426614174000520400005303986540510.005802BR5913GAMA MEDICINA6008BRASILIA62070503***6304E2CA";
+  const boletoCode = "34191.79001 01043.510047 91020.150008 1 89450000015000";
 
   if (loading) {
     return (
@@ -298,16 +317,25 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
                 )}
 
                 {isAccepted && (
-                     <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex flex-col md:flex-row items-center gap-4 text-center md:text-left">
-                        <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center shrink-0">
-                            <CheckCircle size={24} />
-                        </div>
-                        <div>
-                            <h4 className="font-bold text-green-800">Medição Aprovada</h4>
-                            <p className="text-sm text-green-600">
-                                Aprovado por <strong>{cliente.aprovado_por?.nome || 'Usuário'}</strong>.
-                            </p>
-                        </div>
+                     <div className="flex flex-col md:flex-row justify-between gap-4">
+                         <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex flex-col md:flex-row items-center gap-4 text-center md:text-left flex-1">
+                            <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center shrink-0">
+                                <CheckCircle size={24} />
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-green-800">Medição Aprovada</h4>
+                                <p className="text-sm text-green-600">
+                                    Aprovado por <strong>{cliente.aprovado_por?.nome || 'Usuário'}</strong>.
+                                </p>
+                            </div>
+                         </div>
+                         <button 
+                            onClick={() => setShowPaymentModal(true)}
+                            className="px-6 py-4 rounded-2xl bg-slate-900 text-white font-bold hover:bg-slate-800 transition-colors shadow-lg flex items-center justify-center gap-2 md:w-auto w-full"
+                         >
+                            <CreditCard size={20} />
+                            Realizar Pagamento
+                         </button>
                      </div>
                 )}
 
@@ -362,18 +390,7 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
                         />
                     </div>
                 </div>
-                <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-500 uppercase ml-1">Seu CPF</label>
-                    <input 
-                        type="text" 
-                        required
-                        value={approverCpf}
-                        onChange={(e) => setApproverCpf(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-slate-700 focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all"
-                        placeholder="000.000.000-00"
-                    />
-                </div>
-
+                
                 <div className="pt-4 flex gap-3">
                     <button 
                         type="button"
@@ -392,6 +409,108 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
                 </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* PAYMENT MODAL (Mockups) */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+           <div className="absolute inset-0 bg-black/30 backdrop-blur-md" onClick={() => setShowPaymentModal(false)}></div>
+
+           <div className="bg-white w-full max-w-md rounded-3xl relative z-10 overflow-hidden shadow-2xl animate-[scaleIn_0.2s_ease-out]">
+              <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
+                 <div>
+                    <h3 className="text-xl font-bold">Pagamento</h3>
+                    <p className="text-slate-400 text-xs">Total a pagar: {formatCurrency(total)}</p>
+                 </div>
+                 <button onClick={() => setShowPaymentModal(false)} className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors">
+                    <X size={18} />
+                 </button>
+              </div>
+
+              <div className="p-6">
+                 {/* Tabs */}
+                 <div className="flex p-1 bg-slate-100 rounded-xl mb-6">
+                    <button 
+                        onClick={() => setPaymentMethod('pix')}
+                        className={`flex-1 py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${paymentMethod === 'pix' ? 'bg-white shadow-sm text-green-600' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <QrCode size={16} /> PIX
+                    </button>
+                    <button 
+                        onClick={() => setPaymentMethod('boleto')}
+                        className={`flex-1 py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${paymentMethod === 'boleto' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <Barcode size={16} /> Boleto
+                    </button>
+                 </div>
+
+                 {/* Content - PIX */}
+                 {paymentMethod === 'pix' && (
+                    <div className="flex flex-col items-center animate-fadeIn">
+                       <div className="bg-white p-4 border border-slate-200 rounded-2xl shadow-sm mb-4">
+                          {/* Using a placeholder QR code service for the mockup */}
+                          <img 
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(pixCode)}`} 
+                            alt="QR Code Pix" 
+                            className="w-40 h-40 opacity-90"
+                          />
+                       </div>
+                       <p className="text-xs text-slate-500 mb-4 text-center max-w-[200px]">
+                          Abra o app do seu banco e escaneie o código acima.
+                       </p>
+
+                       <div className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center gap-3 mb-6">
+                          <div className="min-w-0 flex-1">
+                             <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Pix Copia e Cola</p>
+                             <p className="text-xs font-mono text-slate-600 truncate">{pixCode}</p>
+                          </div>
+                          <button 
+                            onClick={() => copyToClipboard(pixCode)}
+                            className="p-2 bg-white rounded-lg border border-slate-100 shadow-sm hover:text-green-600 transition-colors"
+                          >
+                             <Copy size={16} />
+                          </button>
+                       </div>
+                    </div>
+                 )}
+
+                 {/* Content - Boleto */}
+                 {paymentMethod === 'boleto' && (
+                    <div className="flex flex-col items-center animate-fadeIn">
+                       <div className="w-full bg-white border border-slate-200 rounded-2xl p-6 mb-6 relative overflow-hidden group">
+                          <div className="h-16 w-full flex items-center justify-center bg-slate-100 rounded mb-4 overflow-hidden relative">
+                             {/* CSS Barcode Mockup */}
+                             <div className="font-mono tracking-[0.2em] text-slate-400 text-4xl scale-y-150 select-none opacity-50">||| ||| || | |</div>
+                          </div>
+                          
+                          <div className="text-center">
+                             <p className="text-sm font-bold text-slate-800 break-all font-mono">{boletoCode}</p>
+                          </div>
+                       </div>
+
+                       <div className="flex gap-3 w-full">
+                          <button 
+                             onClick={() => copyToClipboard(boletoCode)}
+                             className="flex-1 py-3 border border-slate-200 rounded-xl text-slate-600 font-bold text-sm hover:bg-slate-50 flex items-center justify-center gap-2"
+                          >
+                             <Copy size={16} /> Copiar Código
+                          </button>
+                          <button className="flex-1 py-3 bg-blue-50 text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-100 flex items-center justify-center gap-2">
+                             <Download size={16} /> Baixar PDF
+                          </button>
+                       </div>
+                    </div>
+                 )}
+
+                 <button 
+                    onClick={() => setShowPaymentModal(false)}
+                    className="w-full mt-2 py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-colors shadow-lg"
+                 >
+                    Concluir
+                 </button>
+              </div>
+           </div>
         </div>
       )}
     </div>
