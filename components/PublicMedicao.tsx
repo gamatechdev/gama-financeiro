@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { FinanceiroReceita, Cliente } from '../types';
 import { 
   Layers, Calendar, CheckCircle, AlertCircle, Printer, Check, X, User, XCircle, 
-  QrCode, Copy, Barcode, Download, Smartphone, CreditCard, Stethoscope, ArrowRight, LayoutList
+  QrCode, Copy, Barcode, Download, Smartphone, CreditCard, Stethoscope, ArrowRight, LayoutList, Eye
 } from 'lucide-react';
 
 interface PublicMedicaoProps {
@@ -16,6 +16,9 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [receitas, setReceitas] = useState<FinanceiroReceita[]>([]);
   const [monthStr, setMonthStr] = useState('');
+
+  // Selected Exam for Modal Details
+  const [selectedExamReceita, setSelectedExamReceita] = useState<FinanceiroReceita | null>(null);
 
   // Approval Flow States
   const [showAcceptModal, setShowAcceptModal] = useState(false);
@@ -202,6 +205,15 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
       return 'Item desconhecido';
   };
 
+  // --- Separation Logic ---
+  const examReceitas = useMemo(() => {
+    return receitas.filter(r => r.exames_snapshot && Array.isArray(r.exames_snapshot) && r.exames_snapshot.length > 0);
+  }, [receitas]);
+
+  const otherReceitas = useMemo(() => {
+    return receitas.filter(r => !r.exames_snapshot || !Array.isArray(r.exames_snapshot) || r.exames_snapshot.length === 0);
+  }, [receitas]);
+
   const total = receitas.reduce((acc, r) => acc + (r.valor_total || 0), 0);
   const pixCode = "00020126580014BR.GOV.BCB.PIX0136123e4567-e89b-12d3-a456-426614174000520400005303986540510.005802BR5913GAMA MEDICINA6008BRASILIA62070503***6304E2CA";
   const boletoCode = "34191.79001 01043.510047 91020.150008 1 89450000015000";
@@ -259,55 +271,64 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
 
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
-        {/* LEFT COLUMN: RESUMO DE ATENDIMENTOS (SIDEBAR) */}
+        {/* LEFT COLUMN: SOMENTE EXAMES / ATENDIMENTOS COM SNAPSHOT */}
         <div className="lg:col-span-4 space-y-4 print:w-full">
             <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
-                    <LayoutList size={16} /> Exames / Atendimentos
+                    <LayoutList size={16} /> Atendimentos Médicos
                 </h3>
-                <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-bold">{receitas.length}</span>
+                <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-bold">{examReceitas.length}</span>
             </div>
 
             <div className="space-y-3">
-                {receitas.length === 0 ? (
+                {examReceitas.length === 0 ? (
                     <div className="p-6 text-center text-slate-400 bg-white rounded-2xl border border-dashed border-slate-200">
-                        Nenhum atendimento listado.
+                        Nenhum atendimento médico listado.
                     </div>
                 ) : (
-                    receitas.map((receita) => (
-                        <div key={receita.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow flex justify-between items-center group">
+                    examReceitas.map((receita) => (
+                        <div 
+                            key={receita.id} 
+                            onClick={() => setSelectedExamReceita(receita)}
+                            className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 transition-all flex justify-between items-center group cursor-pointer relative overflow-hidden"
+                        >
+                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                            
                             <div className="flex items-center gap-3 overflow-hidden">
-                                <div className="flex flex-col items-center justify-center w-10 h-10 bg-slate-50 rounded-lg text-slate-500 border border-slate-100 shrink-0">
+                                <div className="flex flex-col items-center justify-center w-10 h-10 bg-slate-50 rounded-lg text-slate-500 border border-slate-100 shrink-0 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
                                     <span className="text-[10px] font-bold uppercase">{formatDayMonth(receita.data_projetada).split('/')[1]}</span>
                                     <span className="text-sm font-bold">{formatDayMonth(receita.data_projetada).split('/')[0]}</span>
                                 </div>
                                 <div className="min-w-0">
                                     <p className="text-sm font-bold text-slate-700 truncate group-hover:text-blue-600 transition-colors">
-                                        {receita.descricao || 'Serviço'}
+                                        {receita.descricao || 'Atendimento'}
                                     </p>
-                                    <p className="text-xs text-slate-400 truncate">
-                                        {receita.empresa_resp}
+                                    <p className="text-xs text-slate-400 truncate flex items-center gap-1">
+                                        <Stethoscope size={10} />
+                                        Clique para ver exames
                                     </p>
                                 </div>
                             </div>
-                            <div className="text-right pl-2">
+                            <div className="text-right pl-2 flex items-center gap-2">
                                 <p className="text-sm font-bold text-slate-800">{formatCurrency(receita.valor_total)}</p>
+                                <ArrowRight size={14} className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity -translate-x-2 group-hover:translate-x-0" />
                             </div>
                         </div>
                     ))
                 )}
             </div>
             
-            {/* Total Summary Sticky Card (Mobile only mostly, visible desktop too) */}
+            {/* Total Summary Sticky Card */}
             <div className="bg-slate-800 p-5 rounded-2xl text-white shadow-xl shadow-slate-900/10 mt-4">
                  <div className="flex justify-between items-center">
                     <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Geral</span>
                     <span className="text-2xl font-bold">{formatCurrency(total)}</span>
                  </div>
+                 <p className="text-[10px] text-slate-500 mt-1">Inclui atendimentos e serviços administrativos.</p>
             </div>
         </div>
 
-        {/* RIGHT COLUMN: DETAILED INVOICE */}
+        {/* RIGHT COLUMN: SOMENTE SERVIÇOS ADMINISTRATIVOS / SEM EXAMES */}
         <div className="lg:col-span-8 space-y-6">
             
             {/* Invoice Header */}
@@ -336,46 +357,41 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
                  </div>
 
                  <div className="p-8">
-                     <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide mb-6">Detalhamento dos Serviços</h3>
+                     <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide mb-6">Serviços Administrativos e Outros</h3>
                      
                      <div className="space-y-6">
-                        {receitas.map((receita) => (
-                            <div key={receita.id} className="border-b border-slate-100 last:border-0 pb-6 last:pb-0">
-                                <div className="flex justify-between items-start mb-3">
-                                    <div>
-                                        <h4 className="font-bold text-slate-800 text-lg">{receita.descricao || 'Atendimento'}</h4>
-                                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
-                                            <span className="flex items-center gap-1"><User size={12}/> {receita.empresa_resp}</span>
-                                            <span>•</span>
-                                            <span>{formatDate(receita.data_projetada)}</span>
+                        {otherReceitas.length === 0 ? (
+                            <p className="text-slate-400 text-sm italic">Nenhum serviço administrativo avulso neste período. (Apenas atendimentos médicos)</p>
+                        ) : (
+                            otherReceitas.map((receita) => (
+                                <div key={receita.id} className="border-b border-slate-100 last:border-0 pb-6 last:pb-0">
+                                    <div className="flex justify-between items-start mb-3">
+                                        <div>
+                                            <h4 className="font-bold text-slate-800 text-lg">{receita.descricao || 'Serviço / Mensalidade'}</h4>
+                                            <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                                                <span className="flex items-center gap-1"><User size={12}/> {receita.empresa_resp}</span>
+                                                <span>•</span>
+                                                <span>{formatDate(receita.data_projetada)}</span>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <span className="block font-bold text-slate-700">{formatCurrency(receita.valor_total)}</span>
+                                        <div className="text-right">
+                                            <span className="block font-bold text-slate-700">{formatCurrency(receita.valor_total)}</span>
+                                        </div>
                                     </div>
                                 </div>
+                            ))
+                        )}
+                     </div>
 
-                                {receita.exames_snapshot && Array.isArray(receita.exames_snapshot) && receita.exames_snapshot.length > 0 && (
-                                    <div className="bg-slate-50 rounded-xl p-4 mt-3">
-                                        <div className="flex items-center gap-2 mb-3 text-slate-400">
-                                            <Stethoscope size={14} />
-                                            <span className="text-[10px] font-bold uppercase tracking-widest">Exames Realizados</span>
-                                        </div>
-                                        <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                            {receita.exames_snapshot.map((item: any, idx: number) => {
-                                                const name = getCleanExamName(item);
-                                                return (
-                                                    <li key={idx} className="flex items-start gap-2 text-xs font-semibold text-slate-600">
-                                                        <div className="mt-1.5 w-1 h-1 rounded-full bg-blue-400 shrink-0"></div>
-                                                        <span className="uppercase">{name}</span>
-                                                    </li>
-                                                );
-                                            })}
-                                        </ul>
-                                    </div>
-                                )}
-                            </div>
-                        ))}
+                     <div className="mt-8 pt-6 border-t border-slate-100">
+                        <div className="flex justify-between items-center text-sm">
+                            <span className="text-slate-500 font-medium">Subtotal Serviços ({otherReceitas.length})</span>
+                            <span className="text-slate-700 font-bold">{formatCurrency(otherReceitas.reduce((acc, r) => acc + (r.valor_total || 0), 0))}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm mt-2">
+                            <span className="text-slate-500 font-medium">Subtotal Atendimentos Médicos ({examReceitas.length})</span>
+                            <span className="text-slate-700 font-bold">{formatCurrency(examReceitas.reduce((acc, r) => acc + (r.valor_total || 0), 0))}</span>
+                        </div>
                      </div>
                  </div>
             </div>
@@ -430,6 +446,71 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
 
         </div>
       </div>
+
+      {/* --- MODAL DETALHES DE EXAMES --- */}
+      {selectedExamReceita && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setSelectedExamReceita(null)}></div>
+            
+            <div className="glass-panel w-full max-w-lg rounded-[32px] relative z-10 p-0 overflow-hidden shadow-2xl animate-[scaleIn_0.2s_ease-out] bg-white border border-white/60">
+                <div className="bg-slate-900 p-6 text-white flex justify-between items-start">
+                    <div>
+                        <div className="flex items-center gap-2 text-blue-300 mb-1">
+                            <Stethoscope size={16} />
+                            <span className="text-xs font-bold uppercase tracking-widest">Detalhes do Atendimento</span>
+                        </div>
+                        <h3 className="text-xl font-bold">{selectedExamReceita.descricao}</h3>
+                        <p className="text-slate-400 text-sm mt-1">{formatDate(selectedExamReceita.data_projetada)}</p>
+                    </div>
+                    <button 
+                        onClick={() => setSelectedExamReceita(null)}
+                        className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+                    >
+                        <X size={18} />
+                    </button>
+                </div>
+
+                <div className="p-8">
+                    <div className="bg-blue-50/50 rounded-2xl p-6 border border-blue-100">
+                        <h4 className="text-sm font-bold text-slate-700 uppercase tracking-wide mb-4 flex items-center gap-2">
+                            <Eye size={16} className="text-blue-500" />
+                            Exames Realizados
+                        </h4>
+                        
+                        {selectedExamReceita.exames_snapshot && Array.isArray(selectedExamReceita.exames_snapshot) ? (
+                            <ul className="space-y-3">
+                                {selectedExamReceita.exames_snapshot.map((item: any, idx: number) => {
+                                    const name = getCleanExamName(item);
+                                    return (
+                                        <li key={idx} className="flex items-center gap-3 text-sm font-medium text-slate-700 p-2 bg-white rounded-xl border border-slate-100 shadow-sm">
+                                            <div className="w-2 h-2 rounded-full bg-blue-500 shrink-0 ml-1"></div>
+                                            <span className="uppercase">{name}</span>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        ) : (
+                            <p className="text-slate-400">Nenhum exame detalhado.</p>
+                        )}
+                    </div>
+
+                    <div className="mt-6 flex justify-between items-center pt-4 border-t border-slate-100">
+                        <span className="text-sm font-medium text-slate-500">Valor do Atendimento</span>
+                        <span className="text-xl font-bold text-slate-800">{formatCurrency(selectedExamReceita.valor_total)}</span>
+                    </div>
+                </div>
+                
+                <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+                    <button 
+                        onClick={() => setSelectedExamReceita(null)}
+                        className="px-6 py-2.5 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-100 transition-colors shadow-sm text-sm"
+                    >
+                        Fechar
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
 
       {/* Approval Modal */}
       {showAcceptModal && (
