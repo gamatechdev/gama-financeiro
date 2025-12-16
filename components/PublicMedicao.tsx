@@ -178,6 +178,32 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
     return cliente.aprovado_por?.nome || 'Usuário';
   };
 
+  // --- Helper function to extract JUST the exam name cleanly ---
+  const getCleanExamName = (item: any): string => {
+      if (!item) return '';
+
+      // 1. If it's already a string
+      if (typeof item === 'string') {
+          // Check if it's a JSON string by accident (starts with {)
+          if (item.trim().startsWith('{')) {
+              try {
+                  const parsed = JSON.parse(item);
+                  return parsed.name || parsed.nome || 'Exame sem nome';
+              } catch (e) {
+                  return item; // Return raw string if parse fails
+              }
+          }
+          return item; // It's just a normal string
+      }
+
+      // 2. If it's an object
+      if (typeof item === 'object') {
+          return item.name || item.nome || 'Exame sem nome';
+      }
+
+      return 'Item desconhecido';
+  };
+
   const total = receitas.reduce((acc, r) => acc + (r.valor_total || 0), 0);
 
   // Mocks for payment
@@ -268,66 +294,75 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
                   <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded-lg">{receitas.length} registros</span>
               </div>
               
-              <div className="space-y-6">
+              <div className="space-y-8">
                 {receitas.length === 0 ? (
                   <p className="text-slate-400 py-10 text-center italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
                       Nenhum registro encontrado para este mês.
                   </p>
                 ) : (
                   receitas.map((receita) => (
-                    <div key={receita.id} className="bg-slate-50/50 border border-slate-200 rounded-2xl p-6 break-inside-avoid shadow-sm print:shadow-none print:border-slate-300">
+                    <div key={receita.id} className="bg-slate-50/50 border border-slate-200 rounded-2xl p-0 break-inside-avoid shadow-sm print:shadow-none print:border-slate-300 overflow-hidden">
                         {/* Header Section of the Card */}
-                        <div className="flex flex-col md:flex-row justify-between md:items-start gap-4 mb-5">
-                             <div className="flex-1">
-                                 <div className="flex items-center gap-2 mb-1">
-                                    <span className="font-bold text-slate-800 text-lg">{receita.descricao || 'Atendimento / Serviço'}</span>
-                                    {receita.qnt_parcela && receita.qnt_parcela > 1 && (
-                                        <span className="text-[10px] bg-white border border-slate-200 text-slate-500 px-2 py-0.5 rounded-full font-medium">
-                                            {receita.qnt_parcela}ª Parc.
-                                        </span>
-                                    )}
-                                 </div>
-                                 <p className="text-xs text-slate-500 flex items-center gap-1.5">
-                                    <User size={12} className="text-slate-400" />
-                                    Responsável: <span className="font-medium text-slate-600">{receita.empresa_resp}</span>
-                                 </p>
-                             </div>
-                             
-                             <div className="flex items-center gap-8 bg-white px-4 py-2 rounded-xl border border-slate-100">
-                                 <div className="text-right">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Vencimento</p>
-                                    <p className="text-sm font-semibold text-slate-700 flex items-center justify-end gap-1.5">
-                                        <Calendar size={14} className="text-slate-400" />
-                                        {formatDate(receita.data_projetada)}
-                                    </p>
-                                 </div>
-                                 <div className="text-right border-l border-slate-100 pl-6">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Valor</p>
-                                    <p className="text-lg font-bold text-slate-900">{formatCurrency(receita.valor_total)}</p>
-                                 </div>
-                             </div>
+                        <div className="p-6 pb-2">
+                          <div className="flex flex-col md:flex-row justify-between md:items-start gap-4 mb-4">
+                              <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                      <span className="font-bold text-slate-800 text-lg">{receita.descricao || 'Atendimento / Serviço'}</span>
+                                      {receita.qnt_parcela && receita.qnt_parcela > 1 && (
+                                          <span className="text-[10px] bg-white border border-slate-200 text-slate-500 px-2 py-0.5 rounded-full font-medium">
+                                              {receita.qnt_parcela}ª Parc.
+                                          </span>
+                                      )}
+                                  </div>
+                                  <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                                      <User size={12} className="text-slate-400" />
+                                      Responsável: <span className="font-medium text-slate-600">{receita.empresa_resp}</span>
+                                  </p>
+                              </div>
+                              
+                              <div className="flex items-center gap-8 bg-white px-4 py-2 rounded-xl border border-slate-100">
+                                  <div className="text-right">
+                                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Vencimento</p>
+                                      <p className="text-sm font-semibold text-slate-700 flex items-center justify-end gap-1.5">
+                                          <Calendar size={14} className="text-slate-400" />
+                                          {formatDate(receita.data_projetada)}
+                                      </p>
+                                  </div>
+                                  <div className="text-right border-l border-slate-100 pl-6">
+                                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Valor</p>
+                                      <p className="text-lg font-bold text-slate-900">{formatCurrency(receita.valor_total)}</p>
+                                  </div>
+                              </div>
+                          </div>
                         </div>
 
-                        {/* Exam List Section - Clean List */}
+                        {/* SEPARATE SECTION FOR EXAMS */}
                         {receita.exames_snapshot && Array.isArray(receita.exames_snapshot) && receita.exames_snapshot.length > 0 && (
-                            <div className="bg-white rounded-xl border border-slate-200/60 p-5 relative">
-                                <div className="absolute top-0 left-5 -translate-y-1/2 bg-slate-50 border border-slate-200 text-[10px] font-bold text-slate-500 uppercase px-2 py-0.5 rounded-full flex items-center gap-1">
-                                   <Stethoscope size={10} className="text-blue-500" />
-                                   Exames Realizados
+                            <div className="px-6 pb-6 pt-2">
+                                <div className="border-t border-slate-200/60 pt-4">
+                                  <div className="flex items-center gap-2 mb-3">
+                                      <div className="p-1 bg-blue-100 rounded-md text-blue-600">
+                                        <Stethoscope size={14} />
+                                      </div>
+                                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                                        Exames Realizados
+                                      </p>
+                                  </div>
+                                  
+                                  <div className="bg-blue-50/30 rounded-xl p-4 border border-blue-100/50">
+                                    <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-y-2 gap-x-6">
+                                        {receita.exames_snapshot.map((item: any, idx: number) => {
+                                            const name = getCleanExamName(item);
+                                            return (
+                                                <li key={idx} className="flex items-start gap-2 text-xs font-semibold text-slate-600 leading-snug">
+                                                    <div className="mt-1.5 w-1 h-1 rounded-full bg-blue-400 shrink-0"></div>
+                                                    <span className="uppercase">{name}</span>
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                  </div>
                                 </div>
-
-                                <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-2 mt-1">
-                                    {receita.exames_snapshot.map((item: any, idx: number) => {
-                                        // Ensure we only get the name string
-                                        const name = typeof item === 'string' ? item : (item.name || 'Exame sem nome');
-                                        return (
-                                            <li key={idx} className="text-xs text-slate-600 flex items-start gap-2.5 leading-relaxed">
-                                                <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"></div>
-                                                <span className="uppercase font-medium tracking-tight">{name}</span>
-                                            </li>
-                                        );
-                                    })}
-                                </ul>
                             </div>
                         )}
                     </div>
