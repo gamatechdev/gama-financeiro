@@ -3,15 +3,30 @@ import { supabase } from '../supabaseClient';
 import { FinanceiroDespesa } from '../types';
 import { 
   Plus, Trash2, Calendar, TrendingDown, Layers, CheckCircle, 
-  X, Check, Search, Filter, ChevronLeft, ChevronRight, ChevronDown, Tag, CreditCard, Briefcase, RefreshCw, Edit, LayoutGrid, List
+  X, Check, Search, Filter, ChevronLeft, ChevronRight, ChevronDown, Tag, CreditCard, Briefcase, RefreshCw, Edit, LayoutGrid, List, UserCog, Users, DollarSign, ArrowRight
 } from 'lucide-react';
+
+interface ProviderGroup {
+  fornecedor: string;
+  total: number;
+  count: number;
+  ids: number[];
+  firstValue: number; // To pre-fill the input if needed
+}
 
 const Despesas: React.FC = () => {
   const [despesas, setDespesas] = useState<FinanceiroDespesa[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Standard Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  // Provider Batch Modal State
+  const [isProviderModalOpen, setIsProviderModalOpen] = useState(false);
+  const [selectedProviderGroup, setSelectedProviderGroup] = useState<ProviderGroup | null>(null);
+  const [bulkServiceValue, setBulkServiceValue] = useState('');
 
   // View Mode State
   const [viewMode, setViewMode] = useState<'cards' | 'rows'>('cards');
@@ -204,6 +219,40 @@ const Despesas: React.FC = () => {
     });
   }, [despesas, monthFilter, searchTerm, statusFilter]);
 
+  // --- Special Grouping Logic for "Prestadores" ---
+  const { specialProviderCards, regularDespesas } = useMemo(() => {
+    const specialMap: Record<string, ProviderGroup> = {};
+    const regular: FinanceiroDespesa[] = [];
+
+    filteredDespesas.forEach(d => {
+      // Check if description matches exactly
+      if (d.desc === "Atendimento por prestador") {
+        const providerName = d.fornecedor || 'Prestador Desconhecido';
+        
+        if (!specialMap[providerName]) {
+          specialMap[providerName] = {
+            fornecedor: providerName,
+            total: 0,
+            count: 0,
+            ids: [],
+            firstValue: d.valor || 0
+          };
+        }
+        
+        specialMap[providerName].total += (d.valor || 0);
+        specialMap[providerName].count += 1;
+        specialMap[providerName].ids.push(d.id);
+      } else {
+        regular.push(d);
+      }
+    });
+
+    return {
+      specialProviderCards: Object.values(specialMap),
+      regularDespesas: regular
+    };
+  }, [filteredDespesas]);
+
   // --- KPI Calculations ---
 
   const kpis = useMemo(() => {
@@ -279,14 +328,22 @@ const Despesas: React.FC = () => {
   };
 
   const handleMarkAsPaid = async (despesa: FinanceiroDespesa) => {
+    console.log("Marcar como pago (individual):", despesa.id);
     if (despesa.status?.toLowerCase() === 'pago') return;
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('financeiro_despesas')
         .update({ status: 'Pago' })
-        .eq('id', despesa.id);
+        .eq('id', despesa.id)
+        .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase error (individual pay):", error);
+        throw error;
+      }
+      
+      console.log("Success (individual pay):", data);
+
       setDespesas(prev => prev.map(d => 
         d.id === despesa.id ? { ...d, status: 'Pago' } : d
       ));
@@ -295,6 +352,118 @@ const Despesas: React.FC = () => {
       alert('Erro ao atualizar status.');
     }
   };
+
+  // --- Provider Batch Actions ---
+
+  const openProviderModal = (group: ProviderGroup) => {
+    setSelectedProviderGroup(group);
+    // Use the first value found as default, or empty if 0
+    setBulkServiceValue(group.firstValue > 0 ? group.firstValue.toString() : '');
+    setIsProviderModalOpen(true);
+  };
+
+  const handleBulkUpdateValue = async () => {
+    if (!selectedProviderGroup || !bulkServiceValue) return;
+    setSubmitting(true);
+
+    try {
+        const newVal = parseFloat(bulkServiceValue.replace(',', '.'));
+        if (isNaN(newVal)) throw new Error("Valor inválido");
+
+        // 1. Perform Update in DB
+        const { error } = await supabase
+            .from('financeiro_despesas')
+            .update({ valor: newVal })
+            .in('id', selectedProviderGroup.ids);
+        
+        if (error) throw error;
+
+        // 2. Optimistic Update (Update local state immediately)
+        setDespesas(prev => prev.map(d => {
+            if (selectedProviderGroup.ids.includes(d.id)) {
+                return { ...d, valor: newVal };
+            }
+            return d;
+        }));
+
+        setIsProviderModalOpen(false);
+        
+        // 3. Background fetch to ensure sync
+        fetchBaseData();
+
+    } catch (err) {
+        console.error("Error bulk updating:", err);
+        alert("Erro ao atualizar valores.");
+    } finally {
+        setSubmitting(false);
+    }
+  };
+
+  const handleBulkPay = async () => {
+    console.log("--- [1/5] INICIANDO PROCESSO DE PAGAMENTO EM LOTE ---");
+    
+    // Check if group exists
+    if (!selectedProviderGroup) {
+        console.error("ERRO: selectedProviderGroup é nulo.");
+        return;
+    }
+
+    const targetIds = selectedProviderGroup.ids;
+    console.log(`--- [2/5] IDs Alvo encontrados: ${targetIds.length}`, targetIds);
+
+    if (!targetIds || targetIds.length === 0) {
+        console.warn("ALERTA: Array de IDs está vazio. Abortando.");
+        return;
+    }
+
+    // REMOVIDO: window.confirm para garantir execução
+    // O usuário já clicou em "Pagar Todos", vamos assumir que ele quer pagar.
+
+    setSubmitting(true);
+
+    try {
+        console.log("--- [3/5] Enviando comando SQL para o Supabase... ---");
+        
+        // Perform Update
+        const { data, error, status } = await supabase
+            .from('financeiro_despesas')
+            .update({ status: 'Pago' })
+            .in('id', targetIds)
+            .select();
+        
+        console.log("--- [4/5] Resposta do Supabase ---");
+        console.log("Status HTTP:", status);
+        console.log("Dados atualizados:", data);
+        
+        if (error) {
+            console.error("ERRO SQL:", error);
+            throw error;
+        }
+
+        console.log("--- [5/5] Sucesso! Atualizando interface... ---");
+
+        // Optimistic Update
+        setDespesas(prev => prev.map(d => {
+            if (targetIds.includes(d.id)) {
+                return { ...d, status: 'Pago' };
+            }
+            return d;
+        }));
+
+        setIsProviderModalOpen(false);
+        
+        // Refresh
+        fetchBaseData();
+
+    } catch (err: any) {
+        console.error("CATCH ERROR:", err);
+        alert(`Falha ao realizar pagamento: ${err.message || 'Erro desconhecido'}`);
+    } finally {
+        setSubmitting(false);
+        console.log("--- FIM DO PROCESSO ---");
+    }
+  };
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -619,7 +788,54 @@ const Despesas: React.FC = () => {
         {viewMode === 'cards' ? (
         /* CARD VIEW */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
-          {filteredDespesas.map((despesa) => {
+          
+          {/* 1. SPECIAL PROVIDER CARDS */}
+          {specialProviderCards.map((card, idx) => (
+             <div 
+                key={`sp-${idx}`} 
+                onClick={() => openProviderModal(card)}
+                className="glass-panel p-6 rounded-[24px] relative group hover:bg-cyan-50/50 transition-all hover:translate-y-[-4px] duration-300 border border-cyan-200 border-opacity-50 overflow-hidden shadow-sm shadow-cyan-100/50 cursor-pointer"
+             >
+                 <div className="absolute top-0 right-0 w-24 h-24 bg-cyan-100/50 rounded-bl-full -mr-4 -mt-4 z-0"></div>
+                 
+                 <div className="relative z-10">
+                     <div className="flex items-center gap-3 mb-4">
+                        <div className="w-10 h-10 rounded-2xl bg-cyan-100 flex items-center justify-center shadow-sm text-cyan-600 shrink-0">
+                           <UserCog size={20} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                           <div className="flex items-center justify-between">
+                             <h3 className="font-bold text-slate-800 leading-tight truncate" title={card.fornecedor}>
+                                {card.fornecedor}
+                             </h3>
+                             <ArrowRight size={16} className="text-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                           </div>
+                           <p className="text-xs text-cyan-600 font-bold uppercase tracking-wider">Prestador de Serviço</p>
+                        </div>
+                     </div>
+
+                     <div className="mb-6">
+                        <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Total a Pagar</p>
+                        <p className="text-3xl font-bold text-slate-800 tracking-tight">
+                           {formatCurrency(card.total)}
+                        </p>
+                     </div>
+
+                     <div className="bg-white/40 p-3 rounded-2xl border border-cyan-100/50 flex items-center gap-3">
+                         <div className="p-2 bg-cyan-100 rounded-full text-cyan-600">
+                            <Users size={14} />
+                         </div>
+                         <div>
+                            <p className="text-xs font-bold text-slate-400 uppercase">Atendimentos</p>
+                            <p className="text-sm font-bold text-slate-700">{card.count} registros</p>
+                         </div>
+                     </div>
+                 </div>
+             </div>
+          ))}
+
+          {/* 2. REGULAR DESPESAS CARDS */}
+          {regularDespesas.map((despesa) => {
             const status = getStatusInfo(despesa);
             const isPaid = despesa.status?.toLowerCase() === 'pago';
 
@@ -761,18 +977,23 @@ const Despesas: React.FC = () => {
                </div>
 
                <div className="divide-y divide-slate-100">
+                  {/* List View shows individual rows, even for provider services, to allow detailed auditing */}
                   {filteredDespesas.map(despesa => {
                     const status = getStatusInfo(despesa);
                     const isPaid = despesa.status?.toLowerCase() === 'pago';
+                    const isProviderService = despesa.desc === "Atendimento por prestador";
 
                     return (
-                       <div key={despesa.id} className="grid grid-cols-1 md:grid-cols-12 gap-4 px-6 py-4 hover:bg-white/60 transition-colors items-center group">
+                       <div key={despesa.id} className={`grid grid-cols-1 md:grid-cols-12 gap-4 px-6 py-4 hover:bg-white/60 transition-colors items-center group ${isProviderService ? 'bg-cyan-50/20' : ''}`}>
                           
                           {/* Column 1: Name & Provider */}
                           <div className="col-span-1 md:col-span-4 flex items-center gap-3 overflow-hidden">
                              <div className={`w-2 h-10 rounded-full shrink-0 ${status.dotColor}`}></div>
                              <div className="min-w-0">
-                                <p className="font-bold text-slate-700 truncate text-sm md:text-base">{despesa.nome || 'Despesa'}</p>
+                                <div className="flex items-center gap-2">
+                                  <p className="font-bold text-slate-700 truncate text-sm md:text-base">{despesa.nome || 'Despesa'}</p>
+                                  {isProviderService && <UserCog size={14} className="text-cyan-500" />}
+                                </div>
                                 <div className="flex items-center gap-2">
                                   {despesa.fornecedor && <span className="text-xs text-slate-500 truncate">{despesa.fornecedor}</span>}
                                   {despesa.recorrente && <RefreshCw size={10} className="text-purple-500" />}
@@ -847,7 +1068,86 @@ const Despesas: React.FC = () => {
         </>
       )}
 
-      {/* Modal */}
+      {/* NEW PROVIDER BATCH MODAL */}
+      {isProviderModalOpen && selectedProviderGroup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-md" onClick={() => setIsProviderModalOpen(false)}></div>
+          
+          <div className="glass-panel w-full max-w-md rounded-[32px] relative z-10 p-8 animate-[scaleIn_0.2s_ease-out] bg-white/95 shadow-2xl border border-white/60">
+             <div className="flex justify-between items-start mb-6">
+                <div>
+                   <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                     <UserCog size={20} className="text-cyan-600" />
+                     {selectedProviderGroup.fornecedor}
+                   </h3>
+                   <p className="text-sm text-slate-500">Gestão em lote de prestador</p>
+                </div>
+                <button 
+                  onClick={() => setIsProviderModalOpen(false)}
+                  className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+             </div>
+
+             <div className="bg-cyan-50 rounded-2xl p-4 mb-6 border border-cyan-100">
+                <div className="flex justify-between items-center mb-2">
+                   <span className="text-xs font-bold uppercase text-cyan-600 tracking-wide">Atendimentos</span>
+                   <span className="bg-white text-cyan-700 px-2 py-0.5 rounded text-xs font-bold shadow-sm">{selectedProviderGroup.count}</span>
+                </div>
+                <p className="text-xs text-slate-600">
+                   Alterações aqui afetarão todos os {selectedProviderGroup.count} registros deste prestador neste mês.
+                </p>
+             </div>
+
+             <div className="space-y-6">
+                
+                {/* SET VALUE */}
+                <div>
+                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 mb-1 block">Valor Unitário do Serviço</label>
+                   <div className="flex gap-2">
+                      <div className="relative flex-1">
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">R$</span>
+                          <input 
+                              type="number"
+                              step="0.01"
+                              value={bulkServiceValue}
+                              onChange={(e) => setBulkServiceValue(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 pl-10 font-bold text-slate-700 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
+                              placeholder="0.00"
+                          />
+                      </div>
+                      <button 
+                        onClick={handleBulkUpdateValue}
+                        disabled={submitting || !bulkServiceValue}
+                        className="bg-cyan-600 text-white px-4 rounded-xl font-bold hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-cyan-600/20"
+                      >
+                         Definir
+                      </button>
+                   </div>
+                   <p className="text-[10px] text-slate-400 mt-1 ml-2">Este valor será aplicado a cada registro individualmente.</p>
+                </div>
+
+                <div className="border-t border-slate-100 my-4"></div>
+
+                {/* PAY ALL */}
+                <div>
+                   <button 
+                      onClick={handleBulkPay}
+                      disabled={submitting}
+                      className="w-full py-4 bg-green-600 text-white rounded-2xl font-bold hover:bg-green-700 transition-all shadow-xl shadow-green-600/20 flex items-center justify-center gap-2"
+                   >
+                      <CheckCircle size={20} />
+                      Marcar Todos como PAGO
+                   </button>
+                </div>
+
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Standard Edit/Create Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/10 backdrop-blur-md" onClick={() => setIsModalOpen(false)}></div>

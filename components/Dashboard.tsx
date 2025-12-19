@@ -39,7 +39,7 @@ const Dashboard: React.FC = () => {
   
   // Charts & Alerts States
   const [pieData, setPieData] = useState<ChartData[]>([]); // Despesas por Categoria
-  const [barData, setBarData] = useState<ChartData[]>([]); // Receitas por Tipo
+  const [barData, setBarData] = useState<ChartData[]>([]); // Receitas por Tipo (Mês Atual)
   
   const [chartMode, setChartMode] = useState<'expenses' | 'revenues'>('expenses'); // Toggle State
 
@@ -51,7 +51,31 @@ const Dashboard: React.FC = () => {
   // Helper to format month name
   const currentMonthName = new Date().toLocaleString('pt-BR', { month: 'long' });
   const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#6366f1', '#ef4444'];
-  const BAR_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
+  const BAR_COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981']; // Colors matching categories
+
+  // Helper function for robust float parsing (handles commas, dots, currency symbols)
+  const safeParseFloat = (val: any): number => {
+    if (val === null || val === undefined) return 0;
+    if (typeof val === 'number') return val;
+    if (typeof val === 'string') {
+      // 1. Remove anything that is NOT a digit, dot, comma, or minus
+      let clean = val.replace(/[^\d.,-]/g, '');
+
+      // 2. Handle PT-BR format (1.000,00) vs Standard (1000.00)
+      // If it contains both dot and comma, assume dot is thousands and comma is decimal
+      if (clean.indexOf('.') !== -1 && clean.indexOf(',') !== -1) {
+         clean = clean.replace(/\./g, ''); // Remove thousands dot
+         clean = clean.replace(',', '.');  // Replace decimal comma with dot
+      } else if (clean.indexOf(',') !== -1) {
+         // If only comma exists, assume it's decimal
+         clean = clean.replace(',', '.');
+      }
+      
+      const num = parseFloat(clean);
+      return isNaN(num) ? 0 : num;
+    }
+    return 0;
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -119,12 +143,12 @@ const Dashboard: React.FC = () => {
 
         setAPagar(totalAPagar);
 
-        // 4. Receitas do Mês (List for Chart & Total)
+        // 4. Receitas do Mês (KPI and Chart Data)
         const receitasMesList = receitasList.filter(r => r.data_projetada?.startsWith(currentMonthPrefix));
         const totalReceitasMes = receitasMesList.reduce((acc, curr) => acc + (curr.valor_total || 0), 0);
         setReceitasMes(totalReceitasMes);
 
-        // --- NEW: BAR CHART DATA PREPARATION ---
+        // --- BAR CHART DATA PREPARATION (Current Month Breakdown) ---
         let sumMed = 0;
         let sumEsoc = 0;
         let sumDoc = 0;
@@ -132,11 +156,11 @@ const Dashboard: React.FC = () => {
         let sumSst = 0;
 
         receitasMesList.forEach(r => {
-            sumMed += r.valor_med || 0;
-            sumEsoc += r.valor_esoc || 0;
-            sumDoc += r.valor_doc || 0;
-            sumTrein += r.valor_trein || 0;
-            sumSst += r.valor_servsst || 0;
+            sumMed += safeParseFloat(r.valor_med);
+            sumEsoc += safeParseFloat(r.valor_esoc);
+            sumDoc += safeParseFloat(r.valor_doc);
+            sumTrein += safeParseFloat(r.valor_trein);
+            sumSst += safeParseFloat(r.valor_servsst);
         });
 
         const revenueData = [
@@ -145,7 +169,7 @@ const Dashboard: React.FC = () => {
             { name: 'Documentos', value: sumDoc },
             { name: 'Treinamentos', value: sumTrein },
             { name: 'SST', value: sumSst },
-        ].filter(item => item.value > 0); // Hide empty bars
+        ];
         
         setBarData(revenueData);
 
@@ -375,7 +399,7 @@ const Dashboard: React.FC = () => {
                         {chartMode === 'expenses' ? <PieIcon size={20} /> : <BarChart3 size={20} />}
                     </div>
                     <h3 className="font-bold text-lg text-slate-800">
-                      {chartMode === 'expenses' ? 'Despesas por Categoria' : 'Receitas por Tipo'}
+                      {chartMode === 'expenses' ? 'Despesas por Categoria' : 'Receitas (Detalhamento Mês)'}
                     </h3>
                 </div>
 
@@ -438,7 +462,7 @@ const Dashboard: React.FC = () => {
                        )
                     )}
 
-                    {/* BAR CHART - Revenues */}
+                    {/* BAR CHART - Revenues (Current Month Breakdown) */}
                     {chartMode === 'revenues' && (
                        barData.length > 0 ? (
                         <ResponsiveContainer width="100%" height={300}>
