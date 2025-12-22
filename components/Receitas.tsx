@@ -45,7 +45,8 @@ const Receitas: React.FC = () => {
     qnt_parcela: '1',
     data_projetada: '',
     data_executada: '',
-    descricao: ''
+    descricao: '',
+    categoria: '' // New Field
   });
 
   const fetchBaseData = async () => {
@@ -254,7 +255,8 @@ const Receitas: React.FC = () => {
       qnt_parcela: '1',
       data_projetada: '',
       data_executada: '',
-      descricao: ''
+      descricao: '',
+      categoria: 'Medicina' // Default to Medicina or empty
     });
     setIsModalOpen(true);
   };
@@ -266,13 +268,11 @@ const Receitas: React.FC = () => {
 
     // Check for exames_snapshot
     if (receita.exames_snapshot && Array.isArray(receita.exames_snapshot) && receita.exames_snapshot.length > 0) {
-        
-        // 1. Get List of Exam Names
+        // ... (existing snapshot logic) ...
         const examNames = receita.exames_snapshot.map((item: any) => 
             typeof item === 'string' ? item : item.name
         );
 
-        // 2. Fetch Prices from `preco_exames` if client is set
         let priceMap: Record<string, number> = {};
         
         if (receita.contratante) {
@@ -293,26 +293,29 @@ const Receitas: React.FC = () => {
             }
         }
 
-        // 3. Map items, preferring saved value, fallback to table price, else 0
         initialSnapshotItems = receita.exames_snapshot.map((item: any) => {
             const name = typeof item === 'string' ? item : item.name;
             const savedValue = typeof item === 'object' && item.value ? parseFloat(item.value) : 0;
-            
-            // If saved value is 0, try to populate from table
             const tablePrice = priceMap[name] || 0;
             const finalValue = savedValue > 0 ? savedValue : tablePrice;
-
             return { name, value: finalValue > 0 ? finalValue.toString() : '' };
         });
     }
     
     setSnapshotItems(initialSnapshotItems);
 
-    // Recalculate total from snapshot if original total is 0 (first edit)
     const snapshotTotal = initialSnapshotItems.reduce((acc, item) => acc + (parseFloat(item.value) || 0), 0);
     const displayTotal = receita.valor_total && receita.valor_total > 0 
         ? receita.valor_total.toString() 
         : (snapshotTotal > 0 ? snapshotTotal.toFixed(2) : '');
+
+    // DETECT CATEGORY BASED ON POPULATED COLUMNS
+    let detectedCategory = 'Outros';
+    if (receita.valor_med && receita.valor_med > 0) detectedCategory = 'Medicina';
+    else if (receita.valor_esoc && receita.valor_esoc > 0) detectedCategory = 'Esocial';
+    else if (receita.valor_doc && receita.valor_doc > 0) detectedCategory = 'Documento';
+    else if (receita.valor_trein && receita.valor_trein > 0) detectedCategory = 'Treinamento';
+    else if (receita.valor_servsst && receita.valor_servsst > 0) detectedCategory = 'Serviços de sst';
 
     setFormData({
       empresa_resp: receita.empresa_resp || 'Gama Medicina',
@@ -320,11 +323,11 @@ const Receitas: React.FC = () => {
       valor_total: displayTotal,
       qnt_parcela: receita.qnt_parcela?.toString() || '1',
       data_projetada: receita.data_projetada ? receita.data_projetada.split('T')[0] : '',
-      // Only set data_executada if status is actually 'Pago'. Otherwise keep it empty.
       data_executada: (receita.status?.toLowerCase() === 'pago' && receita.data_executada) 
         ? receita.data_executada.split('T')[0] 
         : '',
-      descricao: receita.descricao || ''
+      descricao: receita.descricao || '',
+      categoria: detectedCategory
     });
     setIsModalOpen(true);
   };
@@ -334,13 +337,11 @@ const Receitas: React.FC = () => {
       newItems[index].value = val;
       setSnapshotItems(newItems);
 
-      // Recalculate total
       const totalSum = newItems.reduce((acc, item) => {
           const v = parseFloat(item.value);
           return acc + (isNaN(v) ? 0 : v);
       }, 0);
 
-      // Update main value form only if > 0 (to avoid overwriting with 0 if just initializing)
       if (totalSum >= 0) {
           setFormData(prev => ({ ...prev, valor_total: totalSum.toFixed(2) }));
       }
@@ -385,15 +386,51 @@ const Receitas: React.FC = () => {
       const totalValue = formData.valor_total ? parseFloat(formData.valor_total) : 0;
       const numInstallments = formData.qnt_parcela ? parseInt(formData.qnt_parcela) : 1;
       
-      // Determine extra fields for snapshot and valor_med
+      // Setup specific category value mapping
+      const categoryValues = {
+          valor_med: 0,
+          valor_esoc: 0,
+          valor_doc: 0,
+          valor_trein: 0,
+          valor_servsst: 0
+      };
+
+      // Assign totalValue to the correct column based on category
+      switch(formData.categoria) {
+          case 'Medicina':
+              categoryValues.valor_med = totalValue;
+              break;
+          case 'Esocial':
+              categoryValues.valor_esoc = totalValue;
+              break;
+          case 'Documento':
+              categoryValues.valor_doc = totalValue;
+              break;
+          case 'Treinamento':
+              categoryValues.valor_trein = totalValue;
+              break;
+          case 'Serviços de sst':
+              categoryValues.valor_servsst = totalValue;
+              break;
+          case 'Outros':
+              // No specific column for Outros, only valor_total
+              break;
+          default:
+              // Fallback if empty, treat as Outros or handle logic as needed
+              break;
+      }
+
+      // Determine extra fields for snapshot
+      // Note: We do NOT set valor_med here again inside snapshotFields to avoid conflict logic.
+      // The category switch above handles the value assignment.
       const snapshotFields = snapshotItems.length > 0 ? {
-          valor_med: totalValue, // Update Medicine Value with the total of exams
-          exames_snapshot: snapshotItems // Save the detailed list with values
-      } : {};
+          exames_snapshot: snapshotItems 
+      } : {
+          exames_snapshot: [] // Clear snapshot if empty
+      };
 
       // LOGIC FOR UPDATE (EDIT)
       if (editingId) {
-        // When editing, we typically update the single record.
         const payload = {
             empresa_resp: formData.empresa_resp,
             contratante: formData.contratante || null,
@@ -403,6 +440,7 @@ const Receitas: React.FC = () => {
             data_executada: formData.data_executada || null,
             descricao: formData.descricao,
             status: formData.data_executada ? 'Pago' : 'Pendente',
+            ...categoryValues, // Spreads the specific column values (zeros others)
             ...snapshotFields
         };
 
@@ -417,6 +455,15 @@ const Receitas: React.FC = () => {
         // LOGIC FOR CREATE (INSERT)
         const installmentValue = numInstallments > 0 ? totalValue / numInstallments : totalValue;
         const payloads = [];
+
+        // Calculate specific installment value for the specific category
+        const categoryInstallmentValues = {
+            valor_med: categoryValues.valor_med > 0 ? installmentValue : 0,
+            valor_esoc: categoryValues.valor_esoc > 0 ? installmentValue : 0,
+            valor_doc: categoryValues.valor_doc > 0 ? installmentValue : 0,
+            valor_trein: categoryValues.valor_trein > 0 ? installmentValue : 0,
+            valor_servsst: categoryValues.valor_servsst > 0 ? installmentValue : 0
+        };
 
         if (formData.data_projetada && numInstallments > 0) {
           const [y, m, d] = formData.data_projetada.split('-').map(Number);
@@ -439,6 +486,7 @@ const Receitas: React.FC = () => {
               data_executada: formData.data_executada || null,
               descricao: desc,
               status: formData.data_executada ? 'Pago' : 'Pendente',
+              ...categoryInstallmentValues,
               ...snapshotFields
             });
           }
@@ -452,6 +500,7 @@ const Receitas: React.FC = () => {
               data_executada: formData.data_executada || null,
               descricao: formData.descricao,
               status: formData.data_executada ? 'Pago' : 'Pendente',
+              ...categoryValues,
               ...snapshotFields
             });
         }
@@ -953,6 +1002,30 @@ const Receitas: React.FC = () => {
                   </select>
                   <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                  </div>
+                </div>
+              </div>
+
+              {/* Category Dropdown */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Categoria</label>
+                <div className="relative">
+                  <select 
+                    className="glass-input w-full p-4 rounded-2xl appearance-none bg-white/50"
+                    value={formData.categoria}
+                    onChange={(e) => setFormData({...formData, categoria: e.target.value})}
+                    required
+                  >
+                    <option value="" className="text-slate-400">Selecione a categoria...</option>
+                    <option value="Medicina">Medicina</option>
+                    <option value="Esocial">Esocial</option>
+                    <option value="Documento">Documento</option>
+                    <option value="Treinamento">Treinamento</option>
+                    <option value="Serviços de sst">Serviços de sst</option>
+                    <option value="Outros">Outros</option>
+                  </select>
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                    <ChevronDown size={14} />
                   </div>
                 </div>
               </div>

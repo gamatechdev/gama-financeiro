@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { FinanceiroDespesa } from '../types';
 import { 
   Plus, Trash2, Calendar, TrendingDown, Layers, CheckCircle, 
-  X, Check, Search, Filter, ChevronLeft, ChevronRight, ChevronDown, Tag, CreditCard, Briefcase, RefreshCw, Edit, LayoutGrid, List, UserCog, Users, DollarSign, ArrowRight
+  X, Check, Search, Filter, ChevronLeft, ChevronRight, ChevronDown, Tag, CreditCard, Briefcase, RefreshCw, Edit, LayoutGrid, List, UserCog, Users, DollarSign, ArrowRight, Percent, Split, AlertTriangle
 } from 'lucide-react';
 
 interface ProviderGroup {
@@ -14,6 +14,8 @@ interface ProviderGroup {
   firstValue: number; // To pre-fill the input if needed
 }
 
+const CATEGORIES_LIST = ['Medicina', 'Segurança', 'Investimento', 'Operacional'];
+
 const Despesas: React.FC = () => {
   const [despesas, setDespesas] = useState<FinanceiroDespesa[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,6 +24,10 @@ const Despesas: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  // Split Expense State
+  const [isSplitMode, setIsSplitMode] = useState(false);
+  const [splitPercentages, setSplitPercentages] = useState<Record<string, string>>({});
 
   // Provider Batch Modal State
   const [isProviderModalOpen, setIsProviderModalOpen] = useState(false);
@@ -248,7 +254,7 @@ const Despesas: React.FC = () => {
     });
 
     return {
-      specialProviderCards: Object.values(specialMap),
+      specialProviderCards: Object.values(specialMap) as ProviderGroup[],
       regularDespesas: regular
     };
   }, [filteredDespesas]);
@@ -279,6 +285,8 @@ const Despesas: React.FC = () => {
 
   const handleOpenNew = () => {
     setEditingId(null);
+    setIsSplitMode(false);
+    setSplitPercentages({});
     setFormData({
         nome: '',
         desc: '',
@@ -298,6 +306,8 @@ const Despesas: React.FC = () => {
 
   const handleEdit = (despesa: FinanceiroDespesa) => {
     setEditingId(despesa.id);
+    setIsSplitMode(false); // Disable split mode on edit for simplicity
+    setSplitPercentages({});
     setFormData({
         nome: despesa.nome || '',
         desc: despesa.desc || '',
@@ -347,7 +357,7 @@ const Despesas: React.FC = () => {
       setDespesas(prev => prev.map(d => 
         d.id === despesa.id ? { ...d, status: 'Pago' } : d
       ));
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating status:', error);
       alert('Erro ao atualizar status.');
     }
@@ -391,7 +401,7 @@ const Despesas: React.FC = () => {
         // 3. Background fetch to ensure sync
         fetchBaseData();
 
-    } catch (err) {
+    } catch (err: any) {
         console.error("Error bulk updating:", err);
         alert("Erro ao atualizar valores.");
     } finally {
@@ -415,9 +425,6 @@ const Despesas: React.FC = () => {
         console.warn("ALERTA: Array de IDs está vazio. Abortando.");
         return;
     }
-
-    // REMOVIDO: window.confirm para garantir execução
-    // O usuário já clicou em "Pagar Todos", vamos assumir que ele quer pagar.
 
     setSubmitting(true);
 
@@ -464,6 +471,19 @@ const Despesas: React.FC = () => {
     }
   };
 
+  const updateSplitPercentage = (category: string, value: string) => {
+    const newVal = parseFloat(value);
+    
+    setSplitPercentages(prev => ({
+      ...prev,
+      [category]: value
+    }));
+  };
+
+  // Calculate current total percentage
+  const totalSplitPercent = useMemo(() => {
+    return Object.values(splitPercentages).reduce((acc: number, val: any) => acc + (parseFloat(val as string) || 0), 0);
+  }, [splitPercentages]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -473,9 +493,61 @@ const Despesas: React.FC = () => {
       const totalValue = formData.valor ? parseFloat(formData.valor) : 0;
       const numInstallments = formData.qnt_parcela ? parseInt(formData.qnt_parcela) : 1;
       
+      const payloads = [];
+
+      // HELPER: Generate payloads for a specific value and category
+      const generatePayloads = (val: number, cat: string) => {
+          const installmentValue = numInstallments > 0 ? val / numInstallments : val;
+          const currentPayloads = [];
+
+          if (formData.data_projetada && numInstallments > 1) {
+             const [y, m, d] = formData.data_projetada.split('-').map(Number);
+             
+             for (let i = 0; i < numInstallments; i++) {
+               const dueDate = new Date(y, (m - 1) + i, d);
+               const dueDateStr = dueDate.toISOString().split('T')[0];
+  
+               let desc = formData.desc || '';
+               desc = `${desc} (Parcela ${i + 1}/${numInstallments})`.trim();
+  
+               currentPayloads.push({
+                 nome: formData.nome,
+                 desc: desc,
+                 fornecedor: formData.fornecedor,
+                 categoria: cat,
+                 forma_pagamento: formData.forma_pagamento,
+                 centro_custos: formData.centro_custos,
+                 responsavel: formData.responsavel,
+                 valor: installmentValue,
+                 data_projetada: dueDateStr,
+                 status: formData.status,
+                 qnt_parcela: numInstallments,
+                 recorrente: formData.recorrente
+               });
+             }
+          } else {
+            // Single row (can be recurring)
+            currentPayloads.push({
+              nome: formData.nome,
+              desc: formData.desc,
+              fornecedor: formData.fornecedor,
+              categoria: cat,
+              forma_pagamento: formData.forma_pagamento,
+              centro_custos: formData.centro_custos,
+              responsavel: formData.responsavel,
+              valor: val,
+              data_projetada: formData.data_projetada || null,
+              status: formData.status,
+              qnt_parcela: 1,
+              recorrente: formData.recorrente
+            });
+          }
+          return currentPayloads;
+      };
+
       // LOGIC FOR UPDATE (EDIT)
       if (editingId) {
-         // Update single record
+         // Standard update (split not supported on edit in this basic version to avoid ID conflicts)
          const payload = {
             nome: formData.nome,
             desc: formData.desc,
@@ -484,9 +556,8 @@ const Despesas: React.FC = () => {
             forma_pagamento: formData.forma_pagamento,
             centro_custos: formData.centro_custos,
             responsavel: formData.responsavel,
-            valor: totalValue, // If editing, we assume totalValue applies to this single entry
+            valor: totalValue,
             data_projetada: formData.data_projetada || null,
-            // status: formData.status, // We generally keep status or let it be 'Pendente' unless manually paid via button, but form has status in formData.
             qnt_parcela: numInstallments,
             recorrente: formData.recorrente
          };
@@ -500,50 +571,33 @@ const Despesas: React.FC = () => {
 
       } else {
         // LOGIC FOR INSERT (CREATE)
-        const installmentValue = numInstallments > 0 ? totalValue / numInstallments : totalValue;
-        const payloads = [];
+        
+        if (isSplitMode) {
+             // Validate total percentage
+             if (Math.abs(totalSplitPercent - 100) > 0.1) {
+                 alert("A soma das porcentagens deve ser exatamente 100%.");
+                 setSubmitting(false);
+                 return;
+             }
 
-        if (formData.data_projetada && numInstallments > 1) {
-           const [y, m, d] = formData.data_projetada.split('-').map(Number);
-           
-           for (let i = 0; i < numInstallments; i++) {
-             const dueDate = new Date(y, (m - 1) + i, d);
-             const dueDateStr = dueDate.toISOString().split('T')[0];
-
-             let desc = formData.desc || '';
-             desc = `${desc} (Parcela ${i + 1}/${numInstallments})`.trim();
-
-             payloads.push({
-               nome: formData.nome,
-               desc: desc,
-               fornecedor: formData.fornecedor,
-               categoria: formData.categoria,
-               forma_pagamento: formData.forma_pagamento,
-               centro_custos: formData.centro_custos,
-               responsavel: formData.responsavel,
-               valor: installmentValue,
-               data_projetada: dueDateStr,
-               status: formData.status,
-               qnt_parcela: numInstallments,
-               recorrente: formData.recorrente
+             // Loop through split percentages
+             Object.entries(splitPercentages).forEach(([cat, percentage]) => {
+                const perc = parseFloat(percentage as string);
+                if (perc > 0) {
+                    const splitVal = totalValue * (perc / 100);
+                    payloads.push(...generatePayloads(splitVal, cat));
+                }
              });
-           }
+             
+             if (payloads.length === 0) {
+                // If user selected split but put 0s, fallback to standard but warn or use total on main category?
+                // Let's assume standard behavior if no split is valid, but using main form category
+                payloads.push(...generatePayloads(totalValue, formData.categoria));
+             }
+
         } else {
-          // Single row (can be recurring)
-          payloads.push({
-            nome: formData.nome,
-            desc: formData.desc,
-            fornecedor: formData.fornecedor,
-            categoria: formData.categoria,
-            forma_pagamento: formData.forma_pagamento,
-            centro_custos: formData.centro_custos,
-            responsavel: formData.responsavel,
-            valor: totalValue,
-            data_projetada: formData.data_projetada || null,
-            status: formData.status,
-            qnt_parcela: 1,
-            recorrente: formData.recorrente
-          });
+             // Standard Create
+             payloads.push(...generatePayloads(totalValue, formData.categoria));
         }
 
         const { error } = await supabase.from('financeiro_despesas').insert(payloads);
@@ -553,7 +607,7 @@ const Despesas: React.FC = () => {
       setIsModalOpen(false);
       fetchBaseData();
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error submitting:', error);
       alert('Erro ao salvar despesa. Verifique os dados.');
     } finally {
@@ -1068,85 +1122,6 @@ const Despesas: React.FC = () => {
         </>
       )}
 
-      {/* NEW PROVIDER BATCH MODAL */}
-      {isProviderModalOpen && selectedProviderGroup && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/20 backdrop-blur-md" onClick={() => setIsProviderModalOpen(false)}></div>
-          
-          <div className="glass-panel w-full max-w-md rounded-[32px] relative z-10 p-8 animate-[scaleIn_0.2s_ease-out] bg-white/95 shadow-2xl border border-white/60">
-             <div className="flex justify-between items-start mb-6">
-                <div>
-                   <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                     <UserCog size={20} className="text-cyan-600" />
-                     {selectedProviderGroup.fornecedor}
-                   </h3>
-                   <p className="text-sm text-slate-500">Gestão em lote de prestador</p>
-                </div>
-                <button 
-                  onClick={() => setIsProviderModalOpen(false)}
-                  className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
-                >
-                  <X size={18} />
-                </button>
-             </div>
-
-             <div className="bg-cyan-50 rounded-2xl p-4 mb-6 border border-cyan-100">
-                <div className="flex justify-between items-center mb-2">
-                   <span className="text-xs font-bold uppercase text-cyan-600 tracking-wide">Atendimentos</span>
-                   <span className="bg-white text-cyan-700 px-2 py-0.5 rounded text-xs font-bold shadow-sm">{selectedProviderGroup.count}</span>
-                </div>
-                <p className="text-xs text-slate-600">
-                   Alterações aqui afetarão todos os {selectedProviderGroup.count} registros deste prestador neste mês.
-                </p>
-             </div>
-
-             <div className="space-y-6">
-                
-                {/* SET VALUE */}
-                <div>
-                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 mb-1 block">Valor Unitário do Serviço</label>
-                   <div className="flex gap-2">
-                      <div className="relative flex-1">
-                          <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">R$</span>
-                          <input 
-                              type="number"
-                              step="0.01"
-                              value={bulkServiceValue}
-                              onChange={(e) => setBulkServiceValue(e.target.value)}
-                              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 pl-10 font-bold text-slate-700 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
-                              placeholder="0.00"
-                          />
-                      </div>
-                      <button 
-                        onClick={handleBulkUpdateValue}
-                        disabled={submitting || !bulkServiceValue}
-                        className="bg-cyan-600 text-white px-4 rounded-xl font-bold hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-cyan-600/20"
-                      >
-                         Definir
-                      </button>
-                   </div>
-                   <p className="text-[10px] text-slate-400 mt-1 ml-2">Este valor será aplicado a cada registro individualmente.</p>
-                </div>
-
-                <div className="border-t border-slate-100 my-4"></div>
-
-                {/* PAY ALL */}
-                <div>
-                   <button 
-                      onClick={handleBulkPay}
-                      disabled={submitting}
-                      className="w-full py-4 bg-green-600 text-white rounded-2xl font-bold hover:bg-green-700 transition-all shadow-xl shadow-green-600/20 flex items-center justify-center gap-2"
-                   >
-                      <CheckCircle size={20} />
-                      Marcar Todos como PAGO
-                   </button>
-                </div>
-
-             </div>
-          </div>
-        </div>
-      )}
-
       {/* Standard Edit/Create Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1249,28 +1224,107 @@ const Despesas: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                 <div className="space-y-1">
-                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Categoria</label>
-                   <div className="relative">
-                      <select 
-                        className="glass-input w-full p-4 rounded-2xl appearance-none bg-white/50"
-                        value={formData.categoria}
-                        onChange={(e) => setFormData({...formData, categoria: e.target.value})}
-                      >
-                        <option value="" className="text-slate-400">Selecione...</option>
-                        <option value="Segurança">Segurança</option>
-                        <option value="Investimento">Investimento</option>
-                        <option value="Medicina">Medicina</option>
-                        <option value="Operacional">Operacional</option>
-                      </select>
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                        <ChevronDown size={14} />
+                 
+                 {/* CATEGORY & SPLIT TOGGLE */}
+                 <div className="space-y-1 col-span-2 md:col-span-1">
+                   {/* Only allow split on new expenses */}
+                   {!editingId && (
+                       <button 
+                         type="button"
+                         onClick={() => setIsSplitMode(!isSplitMode)}
+                         className={`w-full mb-2 py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all font-bold text-xs uppercase tracking-wide shadow-sm
+                            ${isSplitMode 
+                                ? 'bg-indigo-600 text-white shadow-indigo-200' 
+                                : 'bg-white border-2 border-indigo-50 text-indigo-600 hover:bg-indigo-50'}`}
+                       >
+                         {isSplitMode ? <Check size={16} /> : <Split size={16} />}
+                         {isSplitMode ? 'Divisão Ativada' : 'Dividir Despesa'}
+                       </button>
+                   )}
+
+                   {/* Split Mode Grid */}
+                   {isSplitMode ? (
+                      <div className="glass-panel p-4 rounded-2xl border border-indigo-100 bg-indigo-50/30 w-[200%] md:w-[200%] relative z-10 -ml-[0%] md:-ml-[0%]">
+                          
+                          {/* Progress Bar for Total Percentage */}
+                          <div className="mb-4">
+                              <div className="flex justify-between items-center mb-1">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-indigo-500">Total Distribuído</span>
+                                  <span className={`text-sm font-bold ${totalSplitPercent > 100 ? 'text-red-500' : (totalSplitPercent === 100 ? 'text-green-600' : 'text-indigo-600')}`}>
+                                      {totalSplitPercent.toFixed(0)}%
+                                  </span>
+                              </div>
+                              <div className="h-2 w-full bg-white rounded-full overflow-hidden shadow-inner">
+                                  <div 
+                                    className={`h-full transition-all duration-300 ${totalSplitPercent > 100 ? 'bg-red-500' : (totalSplitPercent === 100 ? 'bg-green-500' : 'bg-indigo-500')}`}
+                                    style={{ width: `${Math.min(totalSplitPercent, 100)}%` }}
+                                  ></div>
+                              </div>
+                              {totalSplitPercent > 100 && (
+                                  <div className="flex items-center gap-1 mt-2 text-xs font-bold text-red-500 animate-pulse bg-red-100 px-2 py-1 rounded-lg w-fit">
+                                      <AlertTriangle size={12} />
+                                      Total excede 100%
+                                  </div>
+                              )}
+                          </div>
+
+                          <div className="space-y-4">
+                             {CATEGORIES_LIST.map(cat => {
+                                 const val = formData.valor ? parseFloat(formData.valor) : 0;
+                                 const perc = parseFloat(splitPercentages[cat] || '0');
+                                 const calcVal = (val * (perc / 100)).toFixed(2);
+
+                                 return (
+                                     <div key={cat} className="flex items-center gap-4 bg-white/60 p-2 rounded-xl">
+                                         <span className="text-xs font-bold text-slate-600 w-24 truncate uppercase tracking-tight">{cat}</span>
+                                         <div className="relative flex-1">
+                                             <input 
+                                                type="number" 
+                                                min="0"
+                                                max="100"
+                                                placeholder="0"
+                                                value={splitPercentages[cat] || ''}
+                                                onChange={(e) => updateSplitPercentage(cat, e.target.value)}
+                                                className={`w-full bg-slate-50 border-2 rounded-xl h-14 text-center text-2xl font-bold text-slate-900 focus:outline-none transition-all placeholder-slate-300
+                                                    ${totalSplitPercent > 100 && perc > 0 ? 'border-red-300 focus:border-red-400 bg-red-50' : 'border-indigo-100 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100'}
+                                                    [&::-webkit-inner-spin-button]:appearance-none
+                                                `}
+                                             />
+                                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">%</span>
+                                         </div>
+                                         <div className="w-24 text-right">
+                                             <span className="block text-[10px] text-slate-400 uppercase font-bold">Valor</span>
+                                             <span className="text-sm font-bold text-slate-800">R$ {perc > 0 ? calcVal : '0.00'}</span>
+                                         </div>
+                                     </div>
+                                 );
+                             })}
+                          </div>
                       </div>
-                   </div>
+                   ) : (
+                       <div className="relative mt-1">
+                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 mb-1 block">Categoria</label>
+                          <select 
+                            className="glass-input w-full p-4 rounded-2xl appearance-none bg-white/50"
+                            value={formData.categoria}
+                            onChange={(e) => setFormData({...formData, categoria: e.target.value})}
+                          >
+                            <option value="" className="text-slate-400">Selecione...</option>
+                            <option value="Segurança">Segurança</option>
+                            <option value="Investimento">Investimento</option>
+                            <option value="Medicina">Medicina</option>
+                            <option value="Operacional">Operacional</option>
+                          </select>
+                          <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 mt-3">
+                            <ChevronDown size={14} />
+                          </div>
+                       </div>
+                   )}
                  </div>
-                 <div className="space-y-1">
+
+                 <div className="space-y-1 col-span-2 md:col-span-1">
                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Pagamento</label>
-                   <div className="relative">
+                   <div className="relative mt-1">
                       <select 
                         className="glass-input w-full p-4 rounded-2xl appearance-none bg-white/50"
                         value={formData.forma_pagamento}
@@ -1350,8 +1404,12 @@ const Despesas: React.FC = () => {
 
               <button 
                 type="submit"
-                disabled={submitting}
-                className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20 active:scale-[0.98] mt-2"
+                disabled={submitting || (isSplitMode && Math.abs(totalSplitPercent - 100) > 0.1)}
+                className={`w-full py-4 rounded-2xl font-bold transition-all shadow-xl active:scale-[0.98] mt-2
+                    ${(isSplitMode && Math.abs(totalSplitPercent - 100) > 0.1) 
+                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
+                        : 'bg-slate-900 text-white hover:bg-slate-800 shadow-slate-900/20'}
+                `}
               >
                 {submitting ? 'Salvando...' : (editingId ? 'Atualizar Despesa' : 'Adicionar Despesa')}
               </button>
