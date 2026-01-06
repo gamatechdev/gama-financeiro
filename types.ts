@@ -5,6 +5,8 @@ export interface Cliente {
   razao_social: string;
   status_medicao?: string | null; // 'Aguardando' | 'Aceita' | 'Recusada' | null
   aprovado_por?: any | null; // JSON array [nome, cpf] or object
+  envia_esoc?: boolean; // Novo campo
+  valor_esoc?: number | null; // Valor padrão do eSocial para este cliente
 }
 
 export interface Unidade {

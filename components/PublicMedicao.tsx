@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { FinanceiroReceita, Cliente } from '../types';
 import { 
   Layers, Calendar, CheckCircle, AlertCircle, Printer, Check, X, User, XCircle, 
-  QrCode, Copy, Barcode, Download, Smartphone, CreditCard, Stethoscope, ArrowRight, LayoutList, Eye
+  QrCode, Copy, Barcode, Download, Smartphone, CreditCard, Stethoscope, ArrowRight, LayoutList, Eye, FileText
 } from 'lucide-react';
 
 interface PublicMedicaoProps {
@@ -286,35 +286,46 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
                         Nenhum atendimento médico listado.
                     </div>
                 ) : (
-                    examReceitas.map((receita) => (
-                        <div 
-                            key={receita.id} 
-                            onClick={() => setSelectedExamReceita(receita)}
-                            className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 transition-all flex justify-between items-center group cursor-pointer relative overflow-hidden"
-                        >
-                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                            
-                            <div className="flex items-center gap-3 overflow-hidden">
-                                <div className="flex flex-col items-center justify-center w-10 h-10 bg-slate-50 rounded-lg text-slate-500 border border-slate-100 shrink-0 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
-                                    <span className="text-[10px] font-bold uppercase">{formatDayMonth(receita.data_projetada).split('/')[1]}</span>
-                                    <span className="text-sm font-bold">{formatDayMonth(receita.data_projetada).split('/')[0]}</span>
+                    examReceitas.map((receita) => {
+                        const hasEsocial = receita.valor_esoc && receita.valor_esoc > 0;
+                        
+                        return (
+                            <div 
+                                key={receita.id} 
+                                onClick={() => setSelectedExamReceita(receita)}
+                                className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 transition-all flex justify-between items-center group cursor-pointer relative overflow-hidden"
+                            >
+                                <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                                
+                                <div className="flex items-center gap-3 overflow-hidden">
+                                    <div className="flex flex-col items-center justify-center w-10 h-10 bg-slate-50 rounded-lg text-slate-500 border border-slate-100 shrink-0 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+                                        <span className="text-[10px] font-bold uppercase">{formatDayMonth(receita.data_projetada).split('/')[1]}</span>
+                                        <span className="text-sm font-bold">{formatDayMonth(receita.data_projetada).split('/')[0]}</span>
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-bold text-slate-700 truncate group-hover:text-blue-600 transition-colors">
+                                            {receita.descricao || 'Atendimento'}
+                                        </p>
+                                        <div className="flex flex-col gap-0.5">
+                                            <p className="text-xs text-slate-400 truncate flex items-center gap-1">
+                                                <Stethoscope size={10} />
+                                                Ver exames
+                                            </p>
+                                            {hasEsocial && (
+                                                <p className="text-[10px] text-blue-500 font-bold bg-blue-50 px-1.5 rounded w-fit">
+                                                    + eSocial
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
-                                <div className="min-w-0">
-                                    <p className="text-sm font-bold text-slate-700 truncate group-hover:text-blue-600 transition-colors">
-                                        {receita.descricao || 'Atendimento'}
-                                    </p>
-                                    <p className="text-xs text-slate-400 truncate flex items-center gap-1">
-                                        <Stethoscope size={10} />
-                                        Clique para ver exames
-                                    </p>
+                                <div className="text-right pl-2 flex items-center gap-2">
+                                    <p className="text-sm font-bold text-slate-800">{formatCurrency(receita.valor_total)}</p>
+                                    <ArrowRight size={14} className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity -translate-x-2 group-hover:translate-x-0" />
                                 </div>
                             </div>
-                            <div className="text-right pl-2 flex items-center gap-2">
-                                <p className="text-sm font-bold text-slate-800">{formatCurrency(receita.valor_total)}</p>
-                                <ArrowRight size={14} className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity -translate-x-2 group-hover:translate-x-0" />
-                            </div>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
             
@@ -471,9 +482,29 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
                 </div>
 
                 <div className="p-8">
-                    <div className="bg-blue-50/50 rounded-2xl p-6 border border-blue-100">
-                        <h4 className="text-sm font-bold text-slate-700 uppercase tracking-wide mb-4 flex items-center gap-2">
-                            <Eye size={16} className="text-blue-500" />
+                    {/* ESOCIAL BLOCK IF EXISTS */}
+                    {selectedExamReceita.valor_esoc && selectedExamReceita.valor_esoc > 0 && (
+                        <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 mb-4">
+                            <h4 className="text-sm font-bold text-blue-700 uppercase tracking-wide mb-3 flex items-center gap-2">
+                                <FileText size={16} className="text-blue-500" />
+                                Eventos eSocial
+                            </h4>
+                            <ul className="space-y-2">
+                                <li className="flex justify-between items-center text-sm p-2 bg-white rounded-xl border border-blue-100">
+                                    <span className="font-semibold text-slate-600">Envio 2220</span>
+                                    <span className="font-bold text-slate-800">{formatCurrency(selectedExamReceita.valor_esoc)}</span>
+                                </li>
+                                <li className="flex justify-between items-center text-sm p-2 bg-white rounded-xl border border-blue-100">
+                                    <span className="font-semibold text-slate-600">Envio 2240</span>
+                                    <span className="font-bold text-slate-800">{formatCurrency(selectedExamReceita.valor_esoc)}</span>
+                                </li>
+                            </ul>
+                        </div>
+                    )}
+
+                    <div className="bg-slate-50/50 rounded-2xl p-6 border border-slate-100">
+                        <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wide mb-4 flex items-center gap-2">
+                            <Eye size={16} />
                             Exames Realizados
                         </h4>
                         
@@ -495,7 +526,7 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
                     </div>
 
                     <div className="mt-6 flex justify-between items-center pt-4 border-t border-slate-100">
-                        <span className="text-sm font-medium text-slate-500">Valor do Atendimento</span>
+                        <span className="text-sm font-medium text-slate-500">Valor Total do Atendimento</span>
                         <span className="text-xl font-bold text-slate-800">{formatCurrency(selectedExamReceita.valor_total)}</span>
                     </div>
                 </div>

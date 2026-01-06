@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { Cliente, FinanceiroReceita } from '../types';
 import { 
   Building2, Search, ChevronRight, ArrowLeft, Calendar, 
-  CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit, Stethoscope 
+  CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit, Stethoscope, CloudUpload, FileText
 } from 'lucide-react';
 
 const Medicoes: React.FC = () => {
@@ -15,6 +15,9 @@ const Medicoes: React.FC = () => {
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
   const [clienteReceitas, setClienteReceitas] = useState<FinanceiroReceita[]>([]);
   const [loadingReceitas, setLoadingReceitas] = useState(false);
+
+  // Local state for Client Settings Input (Controlled)
+  const [clientEsocValue, setClientEsocValue] = useState<string>('');
 
   // Modal States
   const [isModalOpen, setIsModalOpen] = useState(false); // Add Revenue Modal
@@ -30,6 +33,7 @@ const Medicoes: React.FC = () => {
   const [formData, setFormData] = useState({
     empresa_resp: 'Gama Medicina',
     valor_total: '',
+    valor_esoc: '', // Novo campo para o valor unitário do eSocial na RECEITA
     qnt_parcela: '1',
     data_projetada: '',
     data_executada: '',
@@ -65,6 +69,13 @@ const Medicoes: React.FC = () => {
       setCalendarYear(parseInt(selectedMonth.split('-')[0]));
     }
   }, [selectedMonth]);
+
+  // Sync Local Input State when Client Changes
+  useEffect(() => {
+    if (selectedCliente) {
+        setClientEsocValue(selectedCliente.valor_esoc ? selectedCliente.valor_esoc.toString() : '29.90');
+    }
+  }, [selectedCliente]);
 
 
   // Fetch Clients on mount
@@ -166,12 +177,89 @@ const Medicoes: React.FC = () => {
     }
   };
 
+  // NEW: Toggle eSocial Function
+  const handleToggleEsocial = async () => {
+    if (!selectedCliente) return;
+
+    const newValue = !selectedCliente.envia_esoc;
+    let newDefaultValue = selectedCliente.valor_esoc;
+
+    // Se estiver ativando e não tiver valor, define padrão 29.90
+    if (newValue && (!newDefaultValue || newDefaultValue === 0)) {
+        newDefaultValue = 29.90;
+        setClientEsocValue('29.90'); // Update input visual immediately
+    }
+
+    // 1. Optimistic Update (Immediate Feedback)
+    const updatedClient = { 
+        ...selectedCliente, 
+        envia_esoc: newValue,
+        valor_esoc: newDefaultValue
+    };
+    setSelectedCliente(updatedClient);
+    setClientes(prev => prev.map(c => c.id === selectedCliente.id ? updatedClient : c));
+
+    try {
+        const { error } = await supabase
+            .from('clientes')
+            .update({ 
+                envia_esoc: newValue,
+                valor_esoc: newDefaultValue
+            })
+            .eq('id', selectedCliente.id);
+
+        if (error) throw error;
+        
+    } catch (err) {
+        console.error("Erro ao atualizar eSocial:", err);
+        alert("Erro ao salvar alteração do eSocial. Revertendo...");
+        // Revert State
+        setSelectedCliente(selectedCliente);
+        setClientes(prev => prev.map(c => c.id === selectedCliente.id ? selectedCliente : c));
+    }
+  };
+
+  // NEW: Update Client eSocial Value (Manual Change onBlur)
+  const handleUpdateClientEsocValue = async () => {
+      if (!selectedCliente) return;
+      const numVal = parseFloat(clientEsocValue);
+      if (isNaN(numVal)) return;
+
+      // Only update if value changed
+      if (numVal === selectedCliente.valor_esoc) return;
+
+      // Optimistic Update
+      const updatedClient = { ...selectedCliente, valor_esoc: numVal };
+      setSelectedCliente(updatedClient);
+      
+      try {
+          const { error } = await supabase
+            .from('clientes')
+            .update({ valor_esoc: numVal })
+            .eq('id', selectedCliente.id);
+          
+          if (error) throw error;
+      } catch (err) {
+          console.error("Erro ao atualizar valor eSocial:", err);
+      }
+  };
+
   const handleOpenNew = () => {
     setEditingId(null);
     setSnapshotItems([]);
+    
+    // Auto-fill eSocial value from Client Settings if available
+    let initialEsoc = '';
+    if (selectedCliente && selectedCliente.envia_esoc && selectedCliente.valor_esoc) {
+        initialEsoc = selectedCliente.valor_esoc.toString();
+    } else if (selectedCliente && selectedCliente.envia_esoc) {
+        initialEsoc = '29.90'; // Default fallback
+    }
+
     setFormData({
       empresa_resp: 'Gama Medicina',
       valor_total: '',
+      valor_esoc: initialEsoc,
       qnt_parcela: '1',
       data_projetada: '',
       data_executada: '',
@@ -187,15 +275,12 @@ const Medicoes: React.FC = () => {
 
     // Check for exames_snapshot
     if (receita.exames_snapshot && Array.isArray(receita.exames_snapshot) && receita.exames_snapshot.length > 0) {
-        
-        // 1. Get List of Exam Names
+        // ... Logic to load snapshot items
         const examNames = receita.exames_snapshot.map((item: any) => 
             typeof item === 'string' ? item : item.name
         );
 
-        // 2. Fetch Prices from `preco_exames` if client is set
         let priceMap: Record<string, number> = {};
-        
         if (receita.contratante) {
             try {
                 const { data: prices } = await supabase
@@ -214,33 +299,49 @@ const Medicoes: React.FC = () => {
             }
         }
 
-        // 3. Map items, preferring saved value, fallback to table price, else 0
         initialSnapshotItems = receita.exames_snapshot.map((item: any) => {
             const name = typeof item === 'string' ? item : item.name;
             const savedValue = typeof item === 'object' && item.value ? parseFloat(item.value) : 0;
-            
-            // If saved value is 0, try to populate from table
             const tablePrice = priceMap[name] || 0;
             const finalValue = savedValue > 0 ? savedValue : tablePrice;
-
             return { name, value: finalValue > 0 ? finalValue.toString() : '' };
         });
     }
 
     setSnapshotItems(initialSnapshotItems);
 
-    // Recalculate total from snapshot if original total is 0 (first edit)
     const snapshotTotal = initialSnapshotItems.reduce((acc, item) => acc + (parseFloat(item.value) || 0), 0);
-    const displayTotal = receita.valor_total && receita.valor_total > 0 
-        ? receita.valor_total.toString() 
-        : (snapshotTotal > 0 ? snapshotTotal.toFixed(2) : '');
+    
+    // LOGIC TO STRIP ESOCIAL FROM DISPLAY TOTAL IF "Atendimento -"
+    // So the user sees the "Base Exam Value" in the Total field, and eSocial in the eSocial field
+    let baseTotal = receita.valor_total || 0;
+    const esocVal = receita.valor_esoc || 0;
+    
+    // If it's an "Atendimento" and has eSocial value saved, the total in DB includes (esocVal * 2).
+    // We reverse this for display purposes.
+    if (receita.descricao?.includes('Atendimento - ') && esocVal > 0) {
+        baseTotal = baseTotal - (esocVal * 2);
+        if (baseTotal < 0) baseTotal = 0; // Safety
+    } else if (snapshotTotal > 0 && (!receita.valor_total || receita.valor_total === 0)) {
+        // Fallback to snapshot if total is 0 (first edit scenario)
+        baseTotal = snapshotTotal;
+    }
+
+    // Determine default eSocial value for the form if empty
+    let finalEsocValue = '';
+    if (esocVal > 0) {
+        finalEsocValue = esocVal.toString();
+    } else if (selectedCliente && selectedCliente.envia_esoc) {
+        // Apply default if current is 0/empty but client has eSocial enabled
+        finalEsocValue = selectedCliente.valor_esoc ? selectedCliente.valor_esoc.toString() : '29.90';
+    }
 
     setFormData({
       empresa_resp: receita.empresa_resp || 'Gama Medicina',
-      valor_total: displayTotal,
+      valor_total: baseTotal > 0 ? baseTotal.toFixed(2) : '',
+      valor_esoc: finalEsocValue,
       qnt_parcela: receita.qnt_parcela?.toString() || '1',
       data_projetada: receita.data_projetada ? receita.data_projetada.split('T')[0] : '',
-      // Only set data_executada if status is actually 'Pago'. Otherwise keep it empty.
       data_executada: (receita.status?.toLowerCase() === 'pago' && receita.data_executada) 
         ? receita.data_executada.split('T')[0] 
         : '',
@@ -270,7 +371,6 @@ const Medicoes: React.FC = () => {
     if (!selectedCliente) return;
 
     try {
-        // Update status to "Aguardando" in Supabase
         const { error } = await supabase
             .from('clientes')
             .update({ status_medicao: 'Aguardando' })
@@ -278,12 +378,10 @@ const Medicoes: React.FC = () => {
 
         if (error) throw error;
 
-        // Update local state for immediate UI feedback
         const updatedClient = { ...selectedCliente, status_medicao: 'Aguardando' };
         setSelectedCliente(updatedClient);
         setClientes(prev => prev.map(c => c.id === selectedCliente.id ? updatedClient : c));
 
-        // Generate Link
         const targetMonth = viewMode === 'monthly' ? selectedMonth : new Date().toISOString().slice(0, 7);
         const payload = {
             clientId: selectedCliente.id,
@@ -315,13 +413,21 @@ const Medicoes: React.FC = () => {
     setSubmitting(true);
     
     try {
-      const totalValue = formData.valor_total ? parseFloat(formData.valor_total) : 0;
+      let baseTotalValue = formData.valor_total ? parseFloat(formData.valor_total) : 0;
       const numInstallments = formData.qnt_parcela ? parseInt(formData.qnt_parcela) : 1;
+      const esocialUnitValue = formData.valor_esoc ? parseFloat(formData.valor_esoc) : 0;
       
+      // LOGIC: If client sends eSocial AND description contains "Atendimento - ", add 2x eSocial value to total
+      let finalTotalValue = baseTotalValue;
+      
+      if (selectedCliente.envia_esoc && formData.descricao.includes('Atendimento - ') && esocialUnitValue > 0) {
+          finalTotalValue = baseTotalValue + (esocialUnitValue * 2);
+      }
+
       // Determine extra fields for snapshot and valor_med
       const snapshotFields = snapshotItems.length > 0 ? {
-          valor_med: totalValue, // Update Medicine Value with the total of exams
-          exames_snapshot: snapshotItems // Save the detailed list with values
+          valor_med: finalTotalValue, // Update Medicine Value with the total
+          exames_snapshot: snapshotItems 
       } : {};
 
       // LOGIC FOR UPDATE (EDIT)
@@ -329,7 +435,8 @@ const Medicoes: React.FC = () => {
          const payload = {
             empresa_resp: formData.empresa_resp,
             contratante: selectedCliente.id,
-            valor_total: totalValue,
+            valor_total: finalTotalValue,
+            valor_esoc: esocialUnitValue, // Save the unit value
             qnt_parcela: numInstallments,
             data_projetada: formData.data_projetada || null,
             data_executada: formData.data_executada || null,
@@ -347,7 +454,7 @@ const Medicoes: React.FC = () => {
 
       } else {
         // LOGIC FOR INSERT (CREATE)
-        const installmentValue = numInstallments > 0 ? totalValue / numInstallments : totalValue;
+        const installmentValue = numInstallments > 0 ? finalTotalValue / numInstallments : finalTotalValue;
         const payloads = [];
 
         if (formData.data_projetada && numInstallments > 0) {
@@ -364,8 +471,9 @@ const Medicoes: React.FC = () => {
 
             payloads.push({
               empresa_resp: formData.empresa_resp,
-              contratante: selectedCliente.id, // ID from the currently viewed client
+              contratante: selectedCliente.id, 
               valor_total: installmentValue,
+              valor_esoc: esocialUnitValue,
               qnt_parcela: numInstallments,
               data_projetada: dueDateStr,
               data_executada: formData.data_executada || null,
@@ -378,7 +486,8 @@ const Medicoes: React.FC = () => {
             payloads.push({
               empresa_resp: formData.empresa_resp,
               contratante: selectedCliente.id,
-              valor_total: totalValue,
+              valor_total: finalTotalValue,
+              valor_esoc: esocialUnitValue,
               qnt_parcela: 1,
               data_projetada: formData.data_projetada || null,
               data_executada: formData.data_executada || null,
@@ -393,7 +502,7 @@ const Medicoes: React.FC = () => {
       }
 
       setIsModalOpen(false);
-      fetchReceitasDoCliente(); // Refresh list
+      fetchReceitasDoCliente(); 
 
     } catch (error) {
       console.error('Error submitting:', error);
@@ -588,7 +697,7 @@ const Medicoes: React.FC = () => {
             <ArrowLeft size={20} />
           </button>
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
                <h2 className="text-2xl font-bold tracking-tight text-slate-800">
                 {selectedCliente.nome_fantasia || selectedCliente.razao_social}
                </h2>
@@ -597,7 +706,46 @@ const Medicoes: React.FC = () => {
                     {detailStatusInfo.label}
                </div>
             </div>
-            <p className="text-slate-500 text-sm mt-1">Histórico de Receitas e Medições</p>
+            
+            <div className="flex items-start gap-4 mt-2">
+                <p className="text-slate-500 text-sm mt-1">Histórico de Receitas e Medições</p>
+                <span className="text-slate-300 mt-1">•</span>
+                
+                {/* ESOCIAL CONFIGURATION BLOCK */}
+                <div className="flex flex-col items-start gap-1">
+                    {/* TOGGLE */}
+                    <div 
+                        onClick={handleToggleEsocial}
+                        className="flex items-center gap-2 cursor-pointer group select-none bg-white/50 px-2 py-0.5 rounded-lg border border-transparent hover:border-slate-200 transition-all"
+                    >
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Envia eSocial?</span>
+                        <div className={`w-8 h-4 rounded-full relative transition-colors duration-300 ${selectedCliente.envia_esoc ? 'bg-green-500' : 'bg-slate-300'}`}>
+                            <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-transform duration-300 ${selectedCliente.envia_esoc ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                        </div>
+                        <span className={`text-[10px] font-bold uppercase ${selectedCliente.envia_esoc ? 'text-green-600' : 'text-slate-400'}`}>
+                            {selectedCliente.envia_esoc ? 'Sim' : 'Não'}
+                        </span>
+                    </div>
+
+                    {/* INPUT FIELD (CONDITIONAL) */}
+                    {selectedCliente.envia_esoc && (
+                        <div className="flex items-center gap-2 animate-fadeIn bg-white/40 px-2 py-1 rounded-lg border border-slate-100">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase">Valor Padrão:</span>
+                            <div className="relative w-20">
+                                <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">R$</span>
+                                <input 
+                                    type="number" 
+                                    step="0.01"
+                                    value={clientEsocValue}
+                                    onChange={(e) => setClientEsocValue(e.target.value)}
+                                    onBlur={handleUpdateClientEsocValue}
+                                    className="w-full pl-5 pr-1 py-0.5 text-xs font-bold border border-slate-200 rounded-md focus:border-blue-500 outline-none text-slate-700 bg-white bg-opacity-80"
+                                />
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
           </div>
         </div>
 
@@ -872,6 +1020,30 @@ const Medicoes: React.FC = () => {
                 </button>
               </div>
 
+              {/* eSocial Breakdown Visualizer */}
+              {selectedCliente.envia_esoc && formData.valor_esoc && parseFloat(formData.valor_esoc) > 0 && (
+                  <div className="bg-blue-50/80 rounded-2xl p-4 border border-blue-100 mb-2">
+                      <div className="flex items-center gap-2 text-blue-600 mb-3">
+                          <FileText size={16} />
+                          <span className="text-xs font-bold uppercase tracking-wide">Envios eSocial</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white p-3 rounded-xl border border-blue-100 flex justify-between items-center">
+                              <span className="text-xs font-bold text-slate-500">2220</span>
+                              <span className="text-sm font-bold text-slate-800">{formatCurrency(parseFloat(formData.valor_esoc))}</span>
+                          </div>
+                          <div className="bg-white p-3 rounded-xl border border-blue-100 flex justify-between items-center">
+                              <span className="text-xs font-bold text-slate-500">2240</span>
+                              <span className="text-sm font-bold text-slate-800">{formatCurrency(parseFloat(formData.valor_esoc))}</span>
+                          </div>
+                      </div>
+                      <div className="pt-3 mt-2 border-t border-blue-100 flex justify-between items-center text-blue-800">
+                          <span className="text-xs font-semibold">Adicional Total</span>
+                          <span className="text-sm font-bold">{formatCurrency(parseFloat(formData.valor_esoc) * 2)}</span>
+                      </div>
+                  </div>
+              )}
+
               {/* Snapshot Exams List (If Available) */}
               {snapshotItems.length > 0 && (
                   <div className="space-y-3 p-4 bg-slate-50/80 rounded-2xl border border-slate-100">
@@ -907,7 +1079,7 @@ const Medicoes: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Valor</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Valor Base (Exames)</label>
                   <input 
                     type="number"
                     step="0.01"
@@ -918,19 +1090,51 @@ const Medicoes: React.FC = () => {
                     placeholder="0.00"
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Parcelas</label>
-                  <input 
-                    type="number"
-                    required
-                    min="1"
-                    value={formData.qnt_parcela}
-                    onChange={(e) => setFormData({...formData, qnt_parcela: e.target.value})}
-                    className="glass-input w-full p-4 rounded-2xl bg-white/50"
-                    placeholder="1"
-                  />
-                </div>
+                
+                {/* CONDITIONAL ESOCIAL INPUT */}
+                {selectedCliente.envia_esoc ? (
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-blue-500 uppercase tracking-wide ml-2">Valor Unitário eSocial</label>
+                      <input 
+                        type="number"
+                        step="0.01"
+                        value={formData.valor_esoc}
+                        onChange={(e) => setFormData({...formData, valor_esoc: e.target.value})}
+                        className="glass-input w-full p-4 rounded-2xl bg-blue-50/50 border-blue-200 text-blue-700 font-bold focus:bg-white"
+                        placeholder="0.00"
+                      />
+                    </div>
+                ) : (
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Parcelas</label>
+                      <input 
+                        type="number"
+                        required
+                        min="1"
+                        value={formData.qnt_parcela}
+                        onChange={(e) => setFormData({...formData, qnt_parcela: e.target.value})}
+                        className="glass-input w-full p-4 rounded-2xl bg-white/50"
+                        placeholder="1"
+                      />
+                    </div>
+                )}
               </div>
+
+              {/* Show Parcelas separately if eSocial took the slot */}
+              {selectedCliente.envia_esoc && (
+                  <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Parcelas</label>
+                      <input 
+                        type="number"
+                        required
+                        min="1"
+                        value={formData.qnt_parcela}
+                        onChange={(e) => setFormData({...formData, qnt_parcela: e.target.value})}
+                        className="glass-input w-full p-4 rounded-2xl bg-white/50"
+                        placeholder="1"
+                      />
+                  </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
