@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { Cliente, FinanceiroReceita } from '../types';
@@ -699,10 +698,13 @@ const Medicoes: React.FC = () => {
     }
 
     let finalEsocValue = '';
-    if (esocVal > 0) {
+    // CHANGE: Always prioritize client's current eSocial value if present
+    if (selectedCliente && selectedCliente.valor_esoc) {
+        finalEsocValue = selectedCliente.valor_esoc.toString();
+    } else if (esocVal > 0) {
         finalEsocValue = esocVal.toString();
     } else if (selectedCliente && selectedCliente.envia_esoc) {
-        finalEsocValue = selectedCliente.valor_esoc ? selectedCliente.valor_esoc.toString() : '29.90';
+        finalEsocValue = '29.90';
     }
 
     setFormData({
