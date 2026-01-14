@@ -35,12 +35,12 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="glass-panel w-full max-w-md p-8 rounded-[20px] relative overflow-hidden bg-white/70">
-        {/* Decorative elements - Light */}
-        <div className="absolute -top-10 -right-10 w-32 h-32 bg-blue-400/20 rounded-full blur-2xl"></div>
-        <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-purple-400/20 rounded-full blur-2xl"></div>
+        
+        <div className="absolute -top-10 -right-10 w-32 h-32 bg-[#04a7bd]/20 rounded-full blur-2xl"></div>
+        <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-[#050a30]/20 rounded-full blur-2xl"></div>
 
         <div className="relative z-10">
-          <h1 className="text-3xl font-bold text-center mb-2 tracking-tight text-slate-800">Gama Center</h1>
+          <h1 className="text-3xl font-bold text-center mb-2 tracking-tight text-[#050a30]">Gama Center</h1>
           <p className="text-center text-slate-500 mb-8 text-sm uppercase tracking-widest">Financeiro</p>
 
           <form onSubmit={handleLogin} className="space-y-6">
@@ -55,7 +55,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="glass-input w-full pl-10 pr-4 py-3 rounded-2xl text-sm transition-all focus:ring-2 focus:ring-blue-500/50"
+                  className="glass-input w-full pl-10 pr-4 py-3 rounded-2xl text-sm transition-all focus:ring-2 focus:ring-[#04a7bd]/50"
                   placeholder="seu@email.com"
                 />
               </div>
@@ -72,7 +72,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="glass-input w-full pl-10 pr-4 py-3 rounded-2xl text-sm transition-all focus:ring-2 focus:ring-blue-500/50"
+                  className="glass-input w-full pl-10 pr-4 py-3 rounded-2xl text-sm transition-all focus:ring-2 focus:ring-[#04a7bd]/50"
                   placeholder="••••••••"
                 />
               </div>
@@ -87,7 +87,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-slate-900 text-white font-semibold py-3 rounded-2xl hover:bg-slate-800 transition-colors shadow-lg shadow-slate-900/20 flex justify-center items-center gap-2"
+              className="w-full bg-[#050a30] text-white font-semibold py-3 rounded-2xl hover:bg-[#030720] transition-colors shadow-lg shadow-[#050a30]/20 flex justify-center items-center gap-2"
             >
               {loading ? <Loader2 className="animate-spin" size={20} /> : 'Acessar Sistema'}
             </button>

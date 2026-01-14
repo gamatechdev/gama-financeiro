@@ -33,6 +33,9 @@ export interface FinanceiroReceita {
   valor_doc?: number | null;
   valor_trein?: number | null;
   valor_servsst?: number | null;
+  // Unidade Join
+  unidade_contratante?: number | null;
+  unidades?: { nome_unidade: string } | null;
 }
 
 export interface Categoria {

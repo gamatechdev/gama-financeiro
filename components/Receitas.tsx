@@ -14,30 +14,23 @@ const Receitas: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
 
-  // Snapshot Item State for Editing
   const [snapshotItems, setSnapshotItems] = useState<{name: string, value: string}[]>([]);
 
-  // View Mode State
   const [viewMode, setViewMode] = useState<'cards' | 'rows'>('cards');
 
-  // Calendar State
   const [showCalendar, setShowCalendar] = useState(false);
   const calendarRef = useRef<HTMLDivElement>(null);
   
-  // Initialize with current month YYYY-MM
   const [monthFilter, setMonthFilter] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth() - 0, 1).toISOString().slice(0, 7);
   });
   
-  // State for the custom calendar year navigation
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
 
-  // Filters State
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('todos');
 
-  // Form State
   const [formData, setFormData] = useState({
     empresa_resp: 'Gama Medicina',
     contratante: '',
@@ -46,7 +39,7 @@ const Receitas: React.FC = () => {
     data_projetada: '',
     data_executada: '',
     descricao: '',
-    categoria: '' // New Field
+    categoria: '' 
   });
 
   const fetchBaseData = async () => {
@@ -87,7 +80,6 @@ const Receitas: React.FC = () => {
     fetchBaseData();
   }, []);
 
-  // Close calendar when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (calendarRef.current && !calendarRef.current.contains(event.target as Node)) {
@@ -100,7 +92,6 @@ const Receitas: React.FC = () => {
     };
   }, []);
 
-  // Sync calendar year when monthFilter changes externally
   useEffect(() => {
     if (monthFilter) {
       setCalendarYear(parseInt(monthFilter.split('-')[0]));
@@ -115,10 +106,10 @@ const Receitas: React.FC = () => {
     if (statusDb === 'pago') {
       return { 
         label: 'Pago', 
-        textColor: 'text-green-600',
-        dotColor: 'bg-green-500',
-        bgPill: 'bg-green-100',
-        borderColor: 'border-green-200'
+        textColor: 'text-[#149890]', // Secondary
+        dotColor: 'bg-[#149890]',
+        bgPill: 'bg-teal-50',
+        borderColor: 'border-teal-100'
       };
     }
     
@@ -157,10 +148,10 @@ const Receitas: React.FC = () => {
 
     return { 
       label: 'Aguardando', 
-      textColor: 'text-blue-600',
-      dotColor: 'bg-blue-500',
-      bgPill: 'bg-blue-100',
-      borderColor: 'border-blue-200'
+      textColor: 'text-[#04a7bd]', // Primary
+      dotColor: 'bg-[#04a7bd]',
+      bgPill: 'bg-cyan-50',
+      borderColor: 'border-cyan-100'
     };
   };
 
@@ -181,7 +172,6 @@ const Receitas: React.FC = () => {
   };
 
   const selectMonthFromCalendar = (monthIndex: number) => {
-    // monthIndex is 0-11
     const newMonth = new Date(calendarYear, monthIndex, 1);
     setMonthFilter(newMonth.toISOString().slice(0, 7));
     setShowCalendar(false);
@@ -189,7 +179,6 @@ const Receitas: React.FC = () => {
 
   // --- Filter Logic ---
 
-  // 1. KPI Data: Filters ONLY by Month
   const kpiReceitas = useMemo(() => {
     return receitas.filter(r => {
       if (!r.data_projetada) return false;
@@ -198,19 +187,15 @@ const Receitas: React.FC = () => {
     });
   }, [receitas, monthFilter]);
 
-  // 2. Grid Data: Filters by Month + Search + Status
   const filteredReceitas = useMemo(() => {
     return receitas.filter(r => {
-      // Month
       if (!r.data_projetada && monthFilter) return false;
       const rDate = r.data_projetada ? r.data_projetada.slice(0, 7) : '';
       const matchesMonth = monthFilter ? rDate === monthFilter : true;
 
-      // Search
       const clientName = getClienteName(r).toLowerCase();
       const matchesSearch = clientName.includes(searchTerm.toLowerCase());
 
-      // Status
       const statusInfo = getStatusInfo(r);
       const matchesStatus = statusFilter === 'todos' 
         ? true 
@@ -219,8 +204,6 @@ const Receitas: React.FC = () => {
       return matchesMonth && matchesSearch && matchesStatus;
     });
   }, [receitas, monthFilter, searchTerm, statusFilter]);
-
-  // --- KPI Calculations ---
 
   const kpis = useMemo(() => {
     let total = 0;
@@ -256,7 +239,7 @@ const Receitas: React.FC = () => {
       data_projetada: '',
       data_executada: '',
       descricao: '',
-      categoria: 'Medicina' // Default to Medicina or empty
+      categoria: 'Medicina' 
     });
     setIsModalOpen(true);
   };
@@ -266,9 +249,7 @@ const Receitas: React.FC = () => {
     
     let initialSnapshotItems: {name: string, value: string}[] = [];
 
-    // Check for exames_snapshot
     if (receita.exames_snapshot && Array.isArray(receita.exames_snapshot) && receita.exames_snapshot.length > 0) {
-        // ... (existing snapshot logic) ...
         const examNames = receita.exames_snapshot.map((item: any) => 
             typeof item === 'string' ? item : item.name
         );
@@ -309,7 +290,6 @@ const Receitas: React.FC = () => {
         ? receita.valor_total.toString() 
         : (snapshotTotal > 0 ? snapshotTotal.toFixed(2) : '');
 
-    // DETECT CATEGORY BASED ON POPULATED COLUMNS
     let detectedCategory = 'Outros';
     if (receita.valor_med && receita.valor_med > 0) detectedCategory = 'Medicina';
     else if (receita.valor_esoc && receita.valor_esoc > 0) detectedCategory = 'Esocial';
@@ -386,7 +366,6 @@ const Receitas: React.FC = () => {
       const totalValue = formData.valor_total ? parseFloat(formData.valor_total) : 0;
       const numInstallments = formData.qnt_parcela ? parseInt(formData.qnt_parcela) : 1;
       
-      // Setup specific category value mapping
       const categoryValues = {
           valor_med: 0,
           valor_esoc: 0,
@@ -395,7 +374,6 @@ const Receitas: React.FC = () => {
           valor_servsst: 0
       };
 
-      // Assign totalValue to the correct column based on category
       switch(formData.categoria) {
           case 'Medicina':
               categoryValues.valor_med = totalValue;
@@ -413,23 +391,17 @@ const Receitas: React.FC = () => {
               categoryValues.valor_servsst = totalValue;
               break;
           case 'Outros':
-              // No specific column for Outros, only valor_total
               break;
           default:
-              // Fallback if empty, treat as Outros or handle logic as needed
               break;
       }
 
-      // Determine extra fields for snapshot
-      // Note: We do NOT set valor_med here again inside snapshotFields to avoid conflict logic.
-      // The category switch above handles the value assignment.
       const snapshotFields = snapshotItems.length > 0 ? {
           exames_snapshot: snapshotItems 
       } : {
-          exames_snapshot: [] // Clear snapshot if empty
+          exames_snapshot: [] 
       };
 
-      // LOGIC FOR UPDATE (EDIT)
       if (editingId) {
         const payload = {
             empresa_resp: formData.empresa_resp,
@@ -440,7 +412,7 @@ const Receitas: React.FC = () => {
             data_executada: formData.data_executada || null,
             descricao: formData.descricao,
             status: formData.data_executada ? 'Pago' : 'Pendente',
-            ...categoryValues, // Spreads the specific column values (zeros others)
+            ...categoryValues, 
             ...snapshotFields
         };
 
@@ -452,11 +424,9 @@ const Receitas: React.FC = () => {
         if (error) throw error;
 
       } else {
-        // LOGIC FOR CREATE (INSERT)
         const installmentValue = numInstallments > 0 ? totalValue / numInstallments : totalValue;
         const payloads = [];
 
-        // Calculate specific installment value for the specific category
         const categoryInstallmentValues = {
             valor_med: categoryValues.valor_med > 0 ? installmentValue : 0,
             valor_esoc: categoryValues.valor_esoc > 0 ? installmentValue : 0,
@@ -520,8 +490,6 @@ const Receitas: React.FC = () => {
     }
   };
 
-  // --- Formatters ---
-
   const formatCurrency = (val: number | null) => {
     if (val === null || val === undefined) return 'R$ 0,00';
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -556,31 +524,29 @@ const Receitas: React.FC = () => {
   return (
     <div className="p-6 relative min-h-full space-y-6">
       
-      {/* Header & Main Actions */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-800">Receitas</h2>
+          <h2 className="text-3xl font-bold tracking-tight text-[#050a30]">Receitas</h2>
           <p className="text-slate-500 mt-1">
             Visão financeira de <span className="font-semibold text-slate-700">{formatMonth(monthFilter)}</span>
           </p>
         </div>
         <button 
           onClick={handleOpenNew}
-          className="bg-slate-900 hover:bg-slate-800 text-white px-5 py-3 rounded-full font-medium shadow-lg shadow-slate-900/20 transition-all flex items-center gap-2"
+          className="bg-[#050a30] hover:bg-[#030720] text-white px-5 py-3 rounded-full font-medium shadow-lg shadow-[#050a30]/20 transition-all flex items-center gap-2"
         >
           <Plus size={20} />
           Nova Receita
         </button>
       </div>
 
-      {/* KPI Indicators */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="glass-panel p-5 rounded-[20px] flex items-center justify-between relative overflow-hidden group">
           <div className="relative z-10">
             <p className="text-sm font-semibold text-slate-500 mb-1">Total Esperado</p>
-            <p className="text-2xl font-bold text-slate-800">{formatCurrency(kpis.total)}</p>
+            <p className="text-2xl font-bold text-[#050a30]">{formatCurrency(kpis.total)}</p>
           </div>
-          <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full bg-blue-50 text-[#04a7bd] flex items-center justify-center">
             <Layers size={24} />
           </div>
         </div>
@@ -588,9 +554,9 @@ const Receitas: React.FC = () => {
         <div className="glass-panel p-5 rounded-[20px] flex items-center justify-between relative overflow-hidden group">
           <div className="relative z-10">
             <p className="text-sm font-semibold text-slate-500 mb-1">Recebido</p>
-            <p className="text-2xl font-bold text-green-600">{formatCurrency(kpis.received)}</p>
+            <p className="text-2xl font-bold text-[#149890]">{formatCurrency(kpis.received)}</p>
           </div>
-          <div className="w-12 h-12 rounded-full bg-green-100 text-green-600 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full bg-teal-50 text-[#149890] flex items-center justify-center">
             <TrendingUp size={24} />
           </div>
         </div>
@@ -606,7 +572,6 @@ const Receitas: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter Bar */}
       <div className="glass-panel p-2 rounded-[20px] flex flex-col md:flex-row items-center gap-2 z-20 relative">
         <div className="flex-1 w-full relative">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
@@ -625,7 +590,6 @@ const Receitas: React.FC = () => {
 
         <div className="flex w-full md:w-auto gap-2 h-10 items-center">
           
-          {/* View Toggle */}
           <div className="bg-white/50 p-1 rounded-xl flex items-center gap-1 shadow-sm h-full">
             <button
               onClick={() => setViewMode('cards')}
@@ -645,7 +609,6 @@ const Receitas: React.FC = () => {
 
           <div className="h-full w-[1px] bg-slate-200/50 hidden md:block mx-1"></div>
 
-          {/* Custom Month Picker */}
           <div className="relative h-full" ref={calendarRef}>
             <div className="flex items-center bg-white/50 rounded-xl p-1 shadow-sm h-full">
               <button 
@@ -660,7 +623,7 @@ const Receitas: React.FC = () => {
                    setShowCalendar(!showCalendar);
                    setCalendarYear(parseInt(monthFilter.split('-')[0]));
                 }}
-                className="px-4 text-center text-xs font-bold text-slate-700 hover:text-blue-600 transition-colors flex items-center justify-center gap-2 whitespace-nowrap min-w-[120px]"
+                className="px-4 text-center text-xs font-bold text-slate-700 hover:text-[#04a7bd] transition-colors flex items-center justify-center gap-2 whitespace-nowrap min-w-[120px]"
               >
                 {formatMonth(monthFilter)}
                 <ChevronDown size={12} className={`transition-transform duration-200 ${showCalendar ? 'rotate-180' : ''}`} />
@@ -674,7 +637,6 @@ const Receitas: React.FC = () => {
               </button>
             </div>
 
-            {/* In-App Custom Calendar Popover */}
             {showCalendar && (
               <div className="absolute top-full right-0 mt-2 w-72 glass-panel p-4 rounded-2xl shadow-xl animate-[scaleIn_0.15s_ease-out] border border-white/70 z-50 bg-white/90">
                 <div className="flex items-center justify-between mb-4 px-1">
@@ -699,9 +661,9 @@ const Receitas: React.FC = () => {
                         className={`
                           py-2 rounded-xl text-sm font-medium transition-all
                           ${isSelected 
-                            ? 'bg-slate-800 text-white shadow-lg shadow-slate-900/20' 
+                            ? 'bg-[#050a30] text-white shadow-lg' 
                             : isCurrentMonth 
-                              ? 'bg-blue-50 text-blue-600 border border-blue-100'
+                              ? 'bg-cyan-50 text-[#04a7bd] border border-cyan-100'
                               : 'hover:bg-slate-100 text-slate-600'}
                         `}
                       >
@@ -721,7 +683,7 @@ const Receitas: React.FC = () => {
             <select 
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-white/50 hover:bg-white h-full pl-9 pr-8 rounded-xl text-xs font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all appearance-none cursor-pointer w-full md:w-36"
+              className="bg-white/50 hover:bg-white h-full pl-9 pr-8 rounded-xl text-xs font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#04a7bd]/20 transition-all appearance-none cursor-pointer w-full md:w-36"
             >
               <option value="todos">Todos</option>
               <option value="pago">Pago</option>
@@ -734,10 +696,9 @@ const Receitas: React.FC = () => {
         </div>
       </div>
 
-      {/* Grid or List Content */}
       {loading ? (
         <div className="flex justify-center py-20">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#04a7bd]"></div>
         </div>
       ) : filteredReceitas.length === 0 ? (
         <div className="text-center py-20 text-slate-400 glass-panel rounded-[24px]">
@@ -746,7 +707,6 @@ const Receitas: React.FC = () => {
       ) : (
         <>
           {viewMode === 'cards' ? (
-            /* CARD VIEW */
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
               {filteredReceitas.map((receita) => {
                 const status = getStatusInfo(receita);
@@ -755,13 +715,11 @@ const Receitas: React.FC = () => {
                 return (
                   <div key={receita.id} className={`glass-panel p-6 rounded-[24px] relative group hover:bg-white/80 transition-all hover:translate-y-[-4px] duration-300 border ${status.borderColor} border-opacity-50 overflow-hidden`}>
                     
-                    {/* Status Badge */}
                     <div className={`absolute top-4 right-4 z-10 flex items-center gap-1.5 px-3 py-1 rounded-full border border-white/50 shadow-sm whitespace-nowrap ${status.bgPill} ${status.textColor}`}>
                         <div className={`w-1.5 h-1.5 rounded-full ${status.dotColor}`}></div>
                         <span className="text-xs font-bold uppercase tracking-wider">{status.label}</span>
                     </div>
 
-                    {/* Header: Company */}
                     <div className="flex items-start mb-6">
                       <div className="flex items-center gap-3 w-full">
                         <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center shadow-sm text-slate-400 shrink-0">
@@ -776,7 +734,6 @@ const Receitas: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Main Value */}
                     <div className="mb-6">
                       <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Valor Total</p>
                       <p className="text-3xl font-bold text-slate-800 tracking-tight">
@@ -787,7 +744,6 @@ const Receitas: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Info Grid */}
                     <div className="grid grid-cols-2 gap-3 mb-6">
                       <div className="bg-white/40 p-3 rounded-2xl border border-white/50">
                         <div className="flex items-center gap-1.5 text-slate-400 mb-1">
@@ -803,13 +759,12 @@ const Receitas: React.FC = () => {
                           <CheckCircle size={12} />
                           <span className="text-xs font-bold uppercase">Pago Em</span>
                         </div>
-                        <p className={`text-sm font-semibold truncate ${isPaid ? 'text-green-600' : 'text-slate-300'}`}>
+                        <p className={`text-sm font-semibold truncate ${isPaid ? 'text-[#149890]' : 'text-slate-300'}`}>
                           {formatDate(receita.data_executada)}
                         </p>
                       </div>
                     </div>
 
-                    {/* Footer Actions */}
                     <div className="flex items-center justify-between pt-2">
                       <div className="flex items-center gap-2 text-slate-400 text-xs font-medium bg-slate-100/50 px-3 py-1.5 rounded-full">
                         <Layers size={14} />
@@ -820,7 +775,7 @@ const Receitas: React.FC = () => {
                         {!isPaid && (
                             <button 
                               onClick={() => handleMarkAsPaid(receita)}
-                              className="group h-10 bg-green-500 hover:bg-green-600 text-white rounded-full flex items-center transition-all duration-300 shadow-lg shadow-green-500/30 overflow-hidden w-10 hover:w-[200px]"
+                              className="group h-10 bg-[#149890] hover:bg-teal-700 text-white rounded-full flex items-center transition-all duration-300 shadow-lg shadow-[#149890]/30 overflow-hidden w-10 hover:w-[200px]"
                               title="Confirmar Pagamento"
                             >
                               <div className="w-10 h-10 flex items-center justify-center shrink-0">
@@ -833,7 +788,7 @@ const Receitas: React.FC = () => {
                         )}
                         <button 
                             onClick={() => handleEdit(receita)}
-                            className="w-10 h-10 rounded-full bg-white text-slate-400 flex items-center justify-center hover:text-blue-500 hover:bg-blue-50 transition-all shadow-sm border border-slate-100"
+                            className="w-10 h-10 rounded-full bg-white text-slate-400 flex items-center justify-center hover:text-[#04a7bd] hover:bg-cyan-50 transition-all shadow-sm border border-slate-100"
                             title="Editar"
                           >
                             <Edit size={16} />
@@ -852,9 +807,7 @@ const Receitas: React.FC = () => {
               })}
             </div>
           ) : (
-            /* ROW VIEW (LIST) */
             <div className="glass-panel rounded-[32px] overflow-hidden pb-4">
-               {/* Header Row */}
                <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50/50 border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider">
                   <div className="col-span-4">Cliente / Empresa</div>
                   <div className="col-span-2">Vencimento</div>
@@ -871,7 +824,6 @@ const Receitas: React.FC = () => {
                     return (
                       <div key={receita.id} className="grid grid-cols-1 md:grid-cols-12 gap-4 px-6 py-4 hover:bg-white/60 transition-colors items-center group">
                         
-                        {/* Column 1: Client & Company */}
                         <div className="col-span-1 md:col-span-4 flex items-center gap-3 overflow-hidden">
                            <div className={`w-2 h-10 rounded-full shrink-0 ${status.dotColor}`}></div>
                            <div className="min-w-0">
@@ -883,7 +835,6 @@ const Receitas: React.FC = () => {
                            </div>
                         </div>
 
-                        {/* Column 2: Due Date */}
                         <div className="col-span-1 md:col-span-2 flex items-center gap-2 text-sm">
                            <Calendar size={14} className="text-slate-400 md:hidden" />
                            <span className={`font-medium ${status.label === 'Vencido' ? 'text-red-500' : 'text-slate-600'}`}>
@@ -891,15 +842,13 @@ const Receitas: React.FC = () => {
                            </span>
                         </div>
 
-                        {/* Column 3: Paid Date */}
                         <div className="col-span-1 md:col-span-2 flex items-center gap-2 text-sm">
                            <CheckCircle size={14} className="text-slate-400 md:hidden" />
-                           <span className={isPaid ? 'text-green-600 font-medium' : 'text-slate-300'}>
+                           <span className={isPaid ? 'text-[#149890] font-medium' : 'text-slate-300'}>
                              {formatDate(receita.data_executada)}
                            </span>
                         </div>
 
-                        {/* Column 4: Value */}
                         <div className="col-span-1 md:col-span-2">
                            <p className="font-bold text-slate-800 text-sm md:text-base">{formatCurrency(receita.valor_total)}</p>
                            {receita.qnt_parcela && receita.qnt_parcela > 1 && (
@@ -909,12 +858,11 @@ const Receitas: React.FC = () => {
                            )}
                         </div>
 
-                        {/* Column 5: Actions */}
                         <div className="col-span-1 md:col-span-2 flex items-center justify-end gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
                              {!isPaid && (
                                 <button 
                                   onClick={() => handleMarkAsPaid(receita)}
-                                  className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center hover:bg-green-500 hover:text-white transition-all shadow-sm"
+                                  className="w-8 h-8 rounded-full bg-teal-100 text-[#149890] flex items-center justify-center hover:bg-[#149890] hover:text-white transition-all shadow-sm"
                                   title="Confirmar Pagamento"
                                 >
                                   <Check size={14} strokeWidth={3} />
@@ -922,7 +870,7 @@ const Receitas: React.FC = () => {
                              )}
                              <button 
                                 onClick={() => handleEdit(receita)}
-                                className="w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-400 flex items-center justify-center hover:text-blue-500 hover:border-blue-200 transition-all shadow-sm"
+                                className="w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-400 flex items-center justify-center hover:text-[#04a7bd] hover:border-cyan-200 transition-all shadow-sm"
                                 title="Editar"
                               >
                                 <Edit size={14} />
@@ -945,7 +893,6 @@ const Receitas: React.FC = () => {
         </>
       )}
 
-      {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/10 backdrop-blur-md" onClick={() => setIsModalOpen(false)}></div>
@@ -953,7 +900,7 @@ const Receitas: React.FC = () => {
           <div className="glass-panel w-full max-w-lg rounded-[32px] relative z-10 p-8 animate-[scaleIn_0.2s_ease-out] bg-white/80 shadow-2xl border border-white/60 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-8">
               <div>
-                <h3 className="text-2xl font-bold text-slate-800">{editingId ? 'Editar Receita' : 'Nova Receita'}</h3>
+                <h3 className="text-2xl font-bold text-[#050a30]">{editingId ? 'Editar Receita' : 'Nova Receita'}</h3>
                 <p className="text-slate-500 text-sm">Preencha os dados abaixo</p>
               </div>
               <button 
@@ -966,19 +913,18 @@ const Receitas: React.FC = () => {
 
             <form onSubmit={handleSubmit} className="space-y-6">
               
-              {/* Radio Group */}
               <div className="bg-slate-100/50 p-1.5 rounded-2xl flex relative">
                 <button
                   type="button"
                   onClick={() => setFormData({...formData, empresa_resp: 'Gama Medicina'})}
-                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${formData.empresa_resp === 'Gama Medicina' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${formData.empresa_resp === 'Gama Medicina' ? 'bg-white shadow-sm text-[#050a30]' : 'text-slate-500 hover:text-slate-700'}`}
                 >
                   Gama Medicina
                 </button>
                 <button
                   type="button"
                   onClick={() => setFormData({...formData, empresa_resp: 'Gama Soluções'})}
-                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${formData.empresa_resp === 'Gama Soluções' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${formData.empresa_resp === 'Gama Soluções' ? 'bg-white shadow-sm text-[#050a30]' : 'text-slate-500 hover:text-slate-700'}`}
                 >
                   Gama Soluções
                 </button>
@@ -1006,7 +952,6 @@ const Receitas: React.FC = () => {
                 </div>
               </div>
 
-              {/* Category Dropdown */}
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Categoria</label>
                 <div className="relative">
@@ -1030,7 +975,6 @@ const Receitas: React.FC = () => {
                 </div>
               </div>
 
-              {/* Snapshot Exams List (If Available) */}
               {snapshotItems.length > 0 && (
                   <div className="space-y-3 p-4 bg-slate-50/80 rounded-2xl border border-slate-100">
                       <div className="flex items-center gap-2 text-slate-500 mb-2">
@@ -1051,7 +995,7 @@ const Receitas: React.FC = () => {
                                           placeholder="0.00"
                                           value={item.value}
                                           onChange={(e) => handleSnapshotItemChange(index, e.target.value)}
-                                          className="w-full bg-white border border-slate-200 rounded-lg py-1.5 pl-8 pr-2 text-xs font-bold text-right focus:outline-none focus:border-blue-400 transition-colors"
+                                          className="w-full bg-white border border-slate-200 rounded-lg py-1.5 pl-8 pr-2 text-xs font-bold text-right focus:outline-none focus:border-[#04a7bd] transition-colors"
                                       />
                                   </div>
                               </div>
@@ -1125,7 +1069,7 @@ const Receitas: React.FC = () => {
               <button 
                 type="submit"
                 disabled={submitting}
-                className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20 active:scale-[0.98]"
+                className="w-full bg-[#050a30] text-white py-4 rounded-2xl font-bold hover:bg-[#030720] transition-all shadow-xl shadow-[#050a30]/20 active:scale-[0.98]"
               >
                 {submitting ? 'Salvando...' : (editingId ? 'Atualizar Receita' : 'Adicionar Receita')}
               </button>

@@ -5,7 +5,6 @@ import {
   Search, Save, Building2, DollarSign, Filter, CheckCircle, AlertCircle, Stethoscope, ChevronDown, X 
 } from 'lucide-react';
 
-// Lista de Exames Fornecida
 const EXAMS_LIST = [
   {"idx":0,"id":447,"nome":"Avaliação Clínica"},
   {"idx":1,"id":448,"nome":"Audiometria"},
@@ -65,18 +64,14 @@ const PrecoExames: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [searchExam, setSearchExam] = useState('');
   
-  // Search state for companies
   const [companySearch, setCompanySearch] = useState('');
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   
-  // Maps exam name to its price and DB ID (if exists)
-  // Format: { "Nome Exame": { price: "10.00", dbId: 123 | null } }
   const [priceMap, setPriceMap] = useState<Record<string, { price: string, dbId: number | null }>>({});
   
   const [saving, setSaving] = useState(false);
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -89,7 +84,6 @@ const PrecoExames: React.FC = () => {
     };
   }, []);
 
-  // 1. Fetch Clients on Mount
   useEffect(() => {
     const fetchClientes = async () => {
       try {
@@ -107,7 +101,6 @@ const PrecoExames: React.FC = () => {
     fetchClientes();
   }, []);
 
-  // 2. Fetch Existing Prices when Client Selected
   useEffect(() => {
     if (!selectedClienteId) {
       setPriceMap({});
@@ -124,18 +117,14 @@ const PrecoExames: React.FC = () => {
 
         if (error) throw error;
 
-        // Initialize map with empty values for all exams
         const newMap: Record<string, { price: string, dbId: number | null }> = {};
         
-        // Pre-fill with defaults
         EXAMS_LIST.forEach(exam => {
             newMap[exam.nome] = { price: '', dbId: null };
         });
 
-        // Overlay existing DB data
         if (data) {
             data.forEach((item: any) => {
-                // If the exam exists in our static list (or distinct DB entry), update it
                 newMap[item.nome] = { 
                     price: item.preco ? item.preco.toString() : '', 
                     dbId: item.id 
@@ -155,7 +144,6 @@ const PrecoExames: React.FC = () => {
     fetchPrices();
   }, [selectedClienteId]);
 
-  // Handle Input Change
   const handlePriceChange = (examName: string, value: string) => {
     setPriceMap(prev => ({
       ...prev,
@@ -163,7 +151,6 @@ const PrecoExames: React.FC = () => {
     }));
   };
 
-  // Handle Save
   const handleSave = async () => {
     if (!selectedClienteId) return;
     setSaving(true);
@@ -177,14 +164,11 @@ const PrecoExames: React.FC = () => {
         const numericPrice = currentData.price ? parseFloat(currentData.price.replace(',', '.')) : 0;
 
         if (currentData.dbId) {
-          // Update existing
           updates.push({
             id: currentData.dbId,
             preco: numericPrice,
-            // Assuming we don't change names of existing records linked by ID
           });
         } else if (numericPrice > 0) {
-          // Insert new (only if price > 0)
           inserts.push({
             nome: exam.nome,
             empresaId: selectedClienteId,
@@ -193,7 +177,6 @@ const PrecoExames: React.FC = () => {
         }
       }
 
-      // Execute Updates
       for (const update of updates) {
         const { error } = await supabase
           .from('preco_exames')
@@ -202,7 +185,6 @@ const PrecoExames: React.FC = () => {
         if (error) throw error;
       }
 
-      // Execute Inserts
       if (inserts.length > 0) {
         const { error } = await supabase
           .from('preco_exames')
@@ -210,7 +192,6 @@ const PrecoExames: React.FC = () => {
         if (error) throw error;
       }
 
-      // Refresh data to get new IDs
       const { data: refreshedData } = await supabase
           .from('preco_exames')
           .select('id, nome, preco')
@@ -239,7 +220,6 @@ const PrecoExames: React.FC = () => {
     }
   };
 
-  // Filter Clients for Dropdown
   const filteredClients = useMemo(() => {
     return clientes.filter(c => 
         (c.nome_fantasia || '').toLowerCase().includes(companySearch.toLowerCase()) ||
@@ -256,10 +236,9 @@ const PrecoExames: React.FC = () => {
   const handleClearClient = () => {
       setSelectedClienteId('');
       setCompanySearch('');
-      setPriceMap({}); // Clear prices
+      setPriceMap({}); 
   };
 
-  // Filtering Exams
   const filteredExams = useMemo(() => {
     return EXAMS_LIST.filter(exam => 
       exam.nome.toLowerCase().includes(searchExam.toLowerCase())
@@ -269,10 +248,9 @@ const PrecoExames: React.FC = () => {
   return (
     <div className="p-6 relative min-h-full space-y-6">
       
-      {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-800">Tabela de Preços</h2>
+          <h2 className="text-3xl font-bold tracking-tight text-[#050a30]">Tabela de Preços</h2>
           <p className="text-slate-500 mt-1">Defina os valores dos exames por empresa</p>
         </div>
         
@@ -280,7 +258,7 @@ const PrecoExames: React.FC = () => {
             <button 
                 onClick={handleSave}
                 disabled={saving}
-                className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-full font-bold shadow-lg shadow-green-600/20 transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                className="bg-[#149890] hover:bg-teal-700 text-white px-6 py-3 rounded-full font-bold shadow-lg shadow-[#149890]/20 transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
             >
                 {saving ? <div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div> : <Save size={20} />}
                 {saving ? 'Salvando...' : 'Salvar Alterações'}
@@ -288,7 +266,6 @@ const PrecoExames: React.FC = () => {
         )}
       </div>
 
-      {/* Select Client */}
       <div className="glass-panel p-6 rounded-[28px] border border-white/60">
          <div className="flex flex-col md:flex-row gap-4 items-start md:items-center relative z-20">
             <div className="w-full md:w-1/2" ref={dropdownRef}>
@@ -305,7 +282,7 @@ const PrecoExames: React.FC = () => {
                             setCompanySearch(e.target.value);
                             setShowCompanyDropdown(true);
                             if (selectedClienteId) {
-                                setSelectedClienteId(''); // Clear selection if typing
+                                setSelectedClienteId(''); 
                                 setPriceMap({});
                             }
                         }}
@@ -313,7 +290,6 @@ const PrecoExames: React.FC = () => {
                         className="glass-input w-full p-4 pl-12 pr-10 rounded-2xl bg-white/50 text-slate-700 font-semibold focus:bg-white transition-all"
                     />
                     
-                    {/* Clear Button or Chevron */}
                     <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 cursor-pointer">
                         {companySearch ? (
                             <X size={16} onClick={handleClearClient} className="hover:text-red-500 transition-colors" />
@@ -322,7 +298,6 @@ const PrecoExames: React.FC = () => {
                         )}
                     </div>
 
-                    {/* DROPDOWN LIST */}
                     {showCompanyDropdown && (
                         <div className="absolute top-full left-0 w-full mt-2 bg-white/90 backdrop-blur-xl border border-white/50 rounded-2xl shadow-xl max-h-60 overflow-y-auto z-50 animate-[scaleIn_0.15s_ease-out]">
                             {filteredClients.length > 0 ? (
@@ -330,7 +305,7 @@ const PrecoExames: React.FC = () => {
                                     <button
                                         key={client.id}
                                         onClick={() => handleSelectClient(client)}
-                                        className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors border-b border-slate-100 last:border-0 flex flex-col"
+                                        className="w-full text-left px-4 py-3 hover:bg-cyan-50 transition-colors border-b border-slate-100 last:border-0 flex flex-col"
                                     >
                                         <span className="font-bold text-slate-700 text-sm">
                                             {client.nome_fantasia || 'Sem Nome Fantasia'}
@@ -370,14 +345,12 @@ const PrecoExames: React.FC = () => {
          </div>
       </div>
 
-      {/* Loading State */}
       {loading && (
           <div className="flex justify-center py-20">
-             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#04a7bd]"></div>
           </div>
       )}
 
-      {/* Exam List Grid */}
       {!loading && selectedClienteId && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-20">
               {filteredExams.map((exam, idx) => {
@@ -389,13 +362,13 @@ const PrecoExames: React.FC = () => {
                         key={idx} 
                         className={`
                             glass-panel p-4 rounded-2xl flex items-center justify-between gap-4 transition-all duration-200 border
-                            ${currentPrice && parseFloat(currentPrice) > 0 ? 'bg-blue-50/50 border-blue-100 shadow-sm' : 'border-transparent hover:bg-white/60'}
+                            ${currentPrice && parseFloat(currentPrice) > 0 ? 'bg-cyan-50/50 border-cyan-100 shadow-sm' : 'border-transparent hover:bg-white/60'}
                         `}
                       >
                           <div className="flex items-center gap-3 min-w-0">
                               <div className={`
                                   w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-slate-500
-                                  ${hasDbRecord ? 'bg-green-100 text-green-600' : 'bg-slate-100'}
+                                  ${hasDbRecord ? 'bg-teal-50 text-[#149890]' : 'bg-slate-100'}
                               `}>
                                   <Stethoscope size={16} />
                               </div>
@@ -413,8 +386,8 @@ const PrecoExames: React.FC = () => {
                                   value={currentPrice}
                                   onChange={(e) => handlePriceChange(exam.nome, e.target.value)}
                                   className={`
-                                      w-full border rounded-xl py-2 pl-8 pr-2 text-right font-bold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all
-                                      ${currentPrice ? 'bg-white border-blue-200 text-slate-800' : 'bg-slate-50 border-transparent text-slate-400'}
+                                      w-full border rounded-xl py-2 pl-8 pr-2 text-right font-bold text-sm focus:outline-none focus:ring-2 focus:ring-[#04a7bd]/20 transition-all
+                                      ${currentPrice ? 'bg-white border-cyan-200 text-slate-800' : 'bg-slate-50 border-transparent text-slate-400'}
                                   `}
                               />
                           </div>
@@ -430,7 +403,6 @@ const PrecoExames: React.FC = () => {
           </div>
       )}
 
-      {/* Empty State */}
       {!loading && !selectedClienteId && (
           <div className="flex flex-col items-center justify-center py-20 text-slate-400 opacity-60">
               <Building2 size={48} className="mb-4 text-slate-300" />
