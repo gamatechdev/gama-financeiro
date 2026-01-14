@@ -4,7 +4,7 @@ import { supabase } from '../supabaseClient';
 import { Cliente, FinanceiroReceita } from '../types';
 import { 
   Building2, Search, ChevronRight, ArrowLeft, Calendar, 
-  CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit, Stethoscope, CloudUpload, FileText, Tag, Save, DollarSign, Upload, RefreshCw, Grid, List
+  CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit, Stethoscope, CloudUpload, FileText, Tag, Save, DollarSign, Upload, RefreshCw, Grid, List, Trash2, Calculator, Info
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -83,12 +83,16 @@ const Medicoes: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false); // Add Revenue Modal
   const [isShareModalOpen, setIsShareModalOpen] = useState(false); // Share Link Modal
   const [isValuesModalOpen, setIsValuesModalOpen] = useState(false); // NEW: Manage Prices Modal
+  const [isExamSelectionOpen, setIsExamSelectionOpen] = useState(false); // NEW: Exam Selection Modal
   const [generatedLink, setGeneratedLink] = useState('');
   
   // Edit State
   const [editingId, setEditingId] = useState<number | null>(null);
   // Snapshot Item State for Editing
   const [snapshotItems, setSnapshotItems] = useState<{name: string, value: string}[]>([]);
+  // Store prices for the selection modal
+  const [clientPrices, setClientPrices] = useState<Record<string, number>>({});
+  const [examSearchTerm, setExamSearchTerm] = useState('');
 
   // Prices Management State
   const [priceMap, setPriceMap] = useState<Record<string, { price: string, dbId: number | null }>>({});
@@ -728,6 +732,57 @@ const Medicoes: React.FC = () => {
       if (totalSum >= 0) {
           setFormData(prev => ({ ...prev, valor_total: totalSum.toFixed(2) }));
       }
+  };
+
+  // --- EXAM SELECTION LOGIC ---
+  const handleOpenExamSelection = async () => {
+      if (!selectedCliente) return;
+      
+      // Fetch current prices to display in the list
+      try {
+          const { data: prices } = await supabase
+              .from('preco_exames')
+              .select('nome, preco')
+              .eq('empresaId', selectedCliente.id);
+          
+          const priceMap: Record<string, number> = {};
+          if (prices) {
+              prices.forEach((p: any) => {
+                  priceMap[p.nome] = p.preco;
+              });
+          }
+          setClientPrices(priceMap);
+      } catch (err) {
+          console.error("Error fetching prices for selection:", err);
+      }
+      
+      setExamSearchTerm('');
+      setIsExamSelectionOpen(true);
+  };
+
+  const handleToggleExam = (examName: string) => {
+      // Check if already exists
+      const exists = snapshotItems.find(item => item.name === examName);
+      
+      let newItems = [];
+      if (exists) {
+          // Remove
+          newItems = snapshotItems.filter(item => item.name !== examName);
+      } else {
+          // Add with price
+          const price = clientPrices[examName] || 0;
+          newItems = [...snapshotItems, { name: examName, value: price.toString() }];
+      }
+      
+      setSnapshotItems(newItems);
+      
+      // Update Total
+      const totalSum = newItems.reduce((acc, item) => {
+          const v = parseFloat(item.value);
+          return acc + (isNaN(v) ? 0 : v);
+      }, 0);
+      
+      setFormData(prev => ({ ...prev, valor_total: totalSum.toFixed(2) }));
   };
 
   const handleGenerateLink = async () => {
@@ -1467,371 +1522,477 @@ const Medicoes: React.FC = () => {
         </div>
       </div>
 
-      {/* NEW MODAL for Adding Revenue */}
+      {/* NEW MODAL for Adding Revenue - REDESIGNED */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/10 backdrop-blur-md" onClick={() => setIsModalOpen(false)}></div>
           
-          <div className="glass-panel w-full max-w-lg rounded-[32px] relative z-10 p-8 animate-[scaleIn_0.2s_ease-out] bg-white/80 shadow-2xl border border-white/60 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h3 className="text-2xl font-bold text-[#050a30]">{editingId ? 'Editar Medição' : 'Nova Medição'}</h3>
-                <p className="text-slate-500 text-sm">Empresa: {selectedCliente.nome_fantasia}</p>
-              </div>
-              <button 
-                onClick={() => setIsModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
-              >
-                <X size={18} />
-              </button>
+          <div className="glass-panel w-full max-w-5xl rounded-[32px] relative z-10 p-0 overflow-hidden bg-white/90 shadow-2xl border border-white/60 animate-[scaleIn_0.2s_ease-out] flex flex-col max-h-[95vh]">
+            {/* Header */}
+            <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-white/50 backdrop-blur-sm">
+                <div>
+                    <div className="flex items-center gap-2 text-[#04a7bd] mb-1">
+                        <Building2 size={18} />
+                        <span className="text-xs font-bold uppercase tracking-widest">{selectedCliente.nome_fantasia}</span>
+                    </div>
+                    <h3 className="text-2xl font-bold text-[#050a30]">{editingId ? 'Editar Medição' : 'Nova Medição'}</h3>
+                </div>
+                <button 
+                    onClick={() => setIsModalOpen(false)}
+                    className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+                >
+                    <X size={20} />
+                </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              
-              <div className="bg-slate-100/50 p-1.5 rounded-2xl flex relative">
-                <button
-                  type="button"
-                  onClick={() => setFormData({...formData, empresa_resp: 'Gama Medicina'})}
-                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${formData.empresa_resp === 'Gama Medicina' ? 'bg-white shadow-sm text-[#050a30]' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                  Gama Medicina
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormData({...formData, empresa_resp: 'Gama Soluções'})}
-                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${formData.empresa_resp === 'Gama Soluções' ? 'bg-white shadow-sm text-[#050a30]' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                  Gama Soluções
-                </button>
-              </div>
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto custom-scrollbar">
+                <div className="grid grid-cols-1 lg:grid-cols-12 min-h-full">
+                    
+                    {/* LEFT COLUMN: GENERAL INFO */}
+                    <div className="lg:col-span-7 p-8 space-y-6 border-r border-slate-100">
+                        
+                        <div className="space-y-4">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Responsável Técnico</label>
+                            <div className="bg-slate-100/50 p-1.5 rounded-2xl flex relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({...formData, empresa_resp: 'Gama Medicina'})}
+                                    className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all duration-200 ${formData.empresa_resp === 'Gama Medicina' ? 'bg-white shadow-sm text-[#050a30]' : 'text-slate-500 hover:text-slate-700'}`}
+                                >
+                                    Gama Medicina
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({...formData, empresa_resp: 'Gama Soluções'})}
+                                    className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all duration-200 ${formData.empresa_resp === 'Gama Soluções' ? 'bg-white shadow-sm text-[#050a30]' : 'text-slate-500 hover:text-slate-700'}`}
+                                >
+                                    Gama Soluções
+                                </button>
+                            </div>
+                        </div>
 
-              {selectedCliente.envia_esoc && formData.valor_esoc && parseFloat(formData.valor_esoc) > 0 && (
-                  <div className="bg-blue-50/80 rounded-2xl p-4 border border-blue-100 mb-2">
-                      <div className="flex items-center gap-2 text-[#04a7bd] mb-3">
-                          <FileText size={16} />
-                          <span className="text-xs font-bold uppercase tracking-wide">Envios eSocial</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                          <div className="bg-white p-3 rounded-xl border border-blue-100 flex justify-between items-center">
-                              <span className="text-xs font-bold text-slate-500">2220</span>
-                              <span className="text-sm font-bold text-slate-800">{formatCurrency(parseFloat(formData.valor_esoc))}</span>
-                          </div>
-                          <div className="bg-white p-3 rounded-xl border border-blue-100 flex justify-between items-center">
-                              <span className="text-xs font-bold text-slate-500">2240</span>
-                              <span className="text-sm font-bold text-slate-800">{formatCurrency(parseFloat(formData.valor_esoc))}</span>
-                          </div>
-                      </div>
-                      <div className="pt-3 mt-2 border-t border-blue-100 flex justify-between items-center text-[#050a30]">
-                          <span className="text-xs font-semibold">Adicional Total</span>
-                          <span className="text-sm font-bold">{formatCurrency(parseFloat(formData.valor_esoc) * 2)}</span>
-                      </div>
-                  </div>
-              )}
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Descrição do Serviço</label>
+                            <textarea 
+                                value={formData.descricao}
+                                onChange={(e) => setFormData({...formData, descricao: e.target.value})}
+                                className="glass-input w-full p-4 rounded-2xl h-32 resize-none bg-white/50 text-sm font-medium"
+                                placeholder="Descreva os detalhes do atendimento ou serviço..."
+                            ></textarea>
+                        </div>
 
-              {snapshotItems.length > 0 && (
-                  <div className="space-y-3 p-4 bg-slate-50/80 rounded-2xl border border-slate-100">
-                      <div className="flex items-center gap-2 text-slate-500 mb-2">
-                          <Stethoscope size={16} />
-                          <span className="text-xs font-bold uppercase tracking-wide">Detalhamento de Exames</span>
-                      </div>
-                      <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
-                          {snapshotItems.map((item, index) => (
-                              <div key={index} className="flex items-center gap-2">
-                                  <span className="text-xs font-medium text-slate-600 flex-1 truncate" title={item.name}>
-                                      {item.name}
-                                  </span>
-                                  <div className="relative w-28">
-                                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-bold">R$</span>
-                                      <input 
-                                          type="number" 
-                                          step="0.01"
-                                          placeholder="0.00"
-                                          value={item.value}
-                                          onChange={(e) => handleSnapshotItemChange(index, e.target.value)}
-                                          className="w-full bg-white border border-slate-200 rounded-lg py-1.5 pl-8 pr-2 text-xs font-bold text-right focus:outline-none focus:border-[#04a7bd] transition-colors"
-                                      />
-                                  </div>
-                              </div>
-                          ))}
-                      </div>
-                      <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
-                          <span className="text-[10px] text-slate-400">Soma automática aplicada ao total.</span>
-                      </div>
-                  </div>
-              )}
+                        <div className="grid grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Vencimento</label>
+                                <input 
+                                    type="date"
+                                    required
+                                    value={formData.data_projetada}
+                                    onChange={(e) => setFormData({...formData, data_projetada: e.target.value})}
+                                    className="glass-input w-full p-3 rounded-2xl bg-white/50 text-slate-700 font-semibold"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Data de Pagamento</label>
+                                <input 
+                                    type="date"
+                                    value={formData.data_executada}
+                                    onChange={(e) => setFormData({...formData, data_executada: e.target.value})}
+                                    className="glass-input w-full p-3 rounded-2xl bg-white/50 text-slate-700 font-semibold"
+                                />
+                            </div>
+                        </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Valor Base (Exames)</label>
-                  <input 
-                    type="number"
-                    step="0.01"
-                    required
-                    value={formData.valor_total}
-                    onChange={(e) => setFormData({...formData, valor_total: e.target.value})}
-                    className="glass-input w-full p-4 rounded-2xl font-semibold bg-white/50"
-                    placeholder="0.00"
-                  />
-                </div>
-                
-                {selectedCliente.envia_esoc ? (
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-[#04a7bd] uppercase tracking-wide ml-2">Valor Unitário eSocial</label>
-                      <input 
-                        type="number"
-                        step="0.01"
-                        value={formData.valor_esoc}
-                        onChange={(e) => setFormData({...formData, valor_esoc: e.target.value})}
-                        className="glass-input w-full p-4 rounded-2xl bg-cyan-50/50 border-cyan-200 text-[#04a7bd] font-bold focus:bg-white"
-                        placeholder="0.00"
-                      />
+                        {/* Extra Configs */}
+                        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 mt-4">
+                            <div className="flex items-center gap-2 mb-3">
+                                <Layers size={16} className="text-slate-400" />
+                                <span className="text-xs font-bold text-slate-500 uppercase">Configuração de Cobrança</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase ml-1 block mb-1">Parcelas</label>
+                                    <input 
+                                        type="number"
+                                        required
+                                        min="1"
+                                        value={formData.qnt_parcela}
+                                        onChange={(e) => setFormData({...formData, qnt_parcela: e.target.value})}
+                                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:border-[#04a7bd]"
+                                    />
+                                </div>
+                                {selectedCliente.envia_esoc && (
+                                    <div>
+                                        <label className="text-[10px] font-bold text-[#04a7bd] uppercase ml-1 block mb-1">Valor Unit. eSocial</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#04a7bd]">R$</span>
+                                            <input 
+                                                type="number"
+                                                step="0.01"
+                                                value={formData.valor_esoc}
+                                                onChange={(e) => setFormData({...formData, valor_esoc: e.target.value})}
+                                                className="w-full bg-cyan-50 border border-cyan-100 rounded-xl pl-8 pr-3 py-2 text-sm font-bold text-[#04a7bd] focus:outline-none focus:border-[#04a7bd]"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
                     </div>
-                ) : (
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Parcelas</label>
-                      <input 
-                        type="number"
-                        required
-                        min="1"
-                        value={formData.qnt_parcela}
-                        onChange={(e) => setFormData({...formData, qnt_parcela: e.target.value})}
-                        className="glass-input w-full p-4 rounded-2xl bg-white/50"
-                        placeholder="1"
-                      />
+
+                    {/* RIGHT COLUMN: FINANCIAL DETAILS & EXAMS */}
+                    <div className="lg:col-span-5 bg-slate-50/50 p-8 flex flex-col">
+                        
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-2 text-slate-600">
+                                <Stethoscope size={18} />
+                                <h4 className="font-bold text-sm uppercase tracking-wide">Detalhamento de Exames</h4>
+                            </div>
+                            <button 
+                                type="button"
+                                onClick={handleOpenExamSelection}
+                                className="text-xs font-bold bg-white border border-slate-200 text-[#04a7bd] px-3 py-1.5 rounded-lg hover:bg-[#04a7bd] hover:text-white transition-all shadow-sm flex items-center gap-1"
+                            >
+                                <Plus size={14} /> Adicionar
+                            </button>
+                        </div>
+
+                        <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col mb-6">
+                            <div className="flex-1 overflow-y-auto custom-scrollbar p-1">
+                                {snapshotItems.length > 0 ? (
+                                    <div className="divide-y divide-slate-50">
+                                        {snapshotItems.map((item, index) => (
+                                            <div key={index} className="flex items-center justify-between p-3 hover:bg-slate-50 transition-colors group">
+                                                <span className="text-xs font-semibold text-slate-600 truncate max-w-[60%]">{item.name}</span>
+                                                <div className="flex items-center gap-2">
+                                                    <div className="relative w-20">
+                                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">R$</span>
+                                                        <input 
+                                                            type="number" 
+                                                            step="0.01"
+                                                            value={item.value}
+                                                            onChange={(e) => handleSnapshotItemChange(index, e.target.value)}
+                                                            className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-[#04a7bd] text-right text-xs font-bold text-slate-700 py-1 pl-5 focus:outline-none transition-colors"
+                                                        />
+                                                    </div>
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => handleToggleExam(item.name)} 
+                                                        className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    >
+                                                        <X size={14} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="h-full flex flex-col items-center justify-center text-slate-300 p-6">
+                                        <List size={32} className="mb-2 opacity-50" />
+                                        <p className="text-xs font-medium text-center">Nenhum exame adicionado.</p>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {/* Calculation Footer inside Card */}
+                            <div className="bg-slate-50 border-t border-slate-100 p-4 space-y-2">
+                                <div className="flex justify-between items-center text-xs text-slate-500">
+                                    <span>Soma dos Exames</span>
+                                    <span className="font-semibold">{formatCurrency(parseFloat(formData.valor_total) || 0)}</span>
+                                </div>
+                                {selectedCliente.envia_esoc && formData.valor_esoc && parseFloat(formData.valor_esoc) > 0 && (
+                                    <div className="flex justify-between items-center text-xs text-[#04a7bd]">
+                                        <span className="flex items-center gap-1"><FileText size={10} /> Adicional eSocial (2 envios)</span>
+                                        <span className="font-bold">+ {formatCurrency(parseFloat(formData.valor_esoc) * 2)}</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* TOTAL BIG DISPLAY */}
+                        <div className="mt-auto">
+                            <div className="bg-[#050a30] text-white p-6 rounded-2xl shadow-xl shadow-[#050a30]/20 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10"></div>
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Valor Total da Medição</p>
+                                <div className="flex items-baseline gap-1">
+                                    <span className="text-lg font-medium text-slate-400">R$</span>
+                                    <span className="text-4xl font-bold tracking-tight">
+                                        {(() => {
+                                            const base = parseFloat(formData.valor_total) || 0;
+                                            const esoc = (selectedCliente.envia_esoc && formData.descricao.includes('Atendimento - ')) 
+                                                ? (parseFloat(formData.valor_esoc) || 0) * 2 
+                                                : 0;
+                                            return (base + esoc).toFixed(2).replace('.', ',');
+                                        })()}
+                                    </span>
+                                </div>
+                                
+                                <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
+                                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                                        <Calculator size={12} />
+                                        <span>Cálculo Automático</span>
+                                    </div>
+                                    <div className="text-xs font-bold bg-white/10 px-2 py-1 rounded text-white">
+                                        {formData.qnt_parcela > 1 ? `${formData.qnt_parcela}x Parcelas` : 'À Vista'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
-                )}
-              </div>
-
-              {selectedCliente.envia_esoc && (
-                  <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Parcelas</label>
-                      <input 
-                        type="number"
-                        required
-                        min="1"
-                        value={formData.qnt_parcela}
-                        onChange={(e) => setFormData({...formData, qnt_parcela: e.target.value})}
-                        className="glass-input w-full p-4 rounded-2xl bg-white/50"
-                        placeholder="1"
-                      />
-                  </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Vencimento</label>
-                  <input 
-                    type="date"
-                    required
-                    value={formData.data_projetada}
-                    onChange={(e) => setFormData({...formData, data_projetada: e.target.value})}
-                    className="glass-input w-full p-4 rounded-2xl bg-white/50 text-slate-600"
-                  />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Pago em</label>
-                  <input 
-                    type="date"
-                    value={formData.data_executada}
-                    onChange={(e) => setFormData({...formData, data_executada: e.target.value})}
-                    className="glass-input w-full p-4 rounded-2xl bg-white/50 text-slate-600"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Descrição</label>
-                <textarea 
-                  value={formData.descricao}
-                  onChange={(e) => setFormData({...formData, descricao: e.target.value})}
-                  className="glass-input w-full p-4 rounded-2xl h-24 resize-none bg-white/50"
-                  placeholder="Detalhes opcionais..."
-                ></textarea>
-              </div>
-
-              <button 
-                type="submit"
-                disabled={submitting}
-                className="w-full bg-[#050a30] text-white py-4 rounded-2xl font-bold hover:bg-[#030720] transition-all shadow-xl shadow-[#050a30]/20 active:scale-[0.98]"
-              >
-                {submitting ? 'Salvando...' : (editingId ? 'Atualizar Medição' : 'Adicionar Medição')}
-              </button>
-
             </form>
+
+            {/* Footer Actions */}
+            <div className="px-8 py-5 border-t border-slate-100 bg-white flex justify-end gap-3">
+                <button 
+                    onClick={() => setIsModalOpen(false)}
+                    className="px-6 py-3 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors"
+                >
+                    Cancelar
+                </button>
+                <button 
+                    onClick={handleSubmit}
+                    disabled={submitting}
+                    className="px-8 py-3 bg-[#04a7bd] text-white font-bold rounded-xl hover:bg-[#038fa3] transition-all shadow-lg shadow-[#04a7bd]/20 flex items-center gap-2"
+                >
+                    {submitting ? (
+                        <>
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            Salvando...
+                        </>
+                    ) : (
+                        <>
+                            <Check size={18} />
+                            {editingId ? 'Salvar Alterações' : 'Criar Medição'}
+                        </>
+                    )}
+                </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* VALUES / PRICES MODAL (Identical to PrecoExames screen but modal) */}
+      {/* EXAM SELECTION MODAL */}
+      {isExamSelectionOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setIsExamSelectionOpen(false)}></div>
+              
+              <div className="glass-panel w-full max-w-md rounded-[28px] relative z-10 p-6 bg-white shadow-2xl border border-white/60 animate-[scaleIn_0.2s_ease-out] flex flex-col max-h-[80vh]">
+                  <div className="flex justify-between items-center mb-4">
+                      <div>
+                          <h3 className="text-lg font-bold text-[#050a30]">Selecionar Exames</h3>
+                          <p className="text-xs text-slate-500">Adicione à medição atual</p>
+                      </div>
+                      <button 
+                          onClick={() => setIsExamSelectionOpen(false)}
+                          className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+                      >
+                          <X size={18} />
+                      </button>
+                  </div>
+
+                  <div className="relative mb-4">
+                      <input 
+                          type="text" 
+                          placeholder="Buscar exame..." 
+                          value={examSearchTerm}
+                          onChange={(e) => setExamSearchTerm(e.target.value)}
+                          className="w-full bg-slate-100 border border-transparent focus:bg-white focus:border-[#04a7bd] rounded-xl py-3 pl-10 pr-4 text-sm outline-none transition-all"
+                          autoFocus
+                      />
+                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  </div>
+
+                  <div className="overflow-y-auto flex-1 pr-1 custom-scrollbar space-y-2">
+                      {EXAMS_LIST.filter(ex => ex.nome.toLowerCase().includes(examSearchTerm.toLowerCase())).map((exam) => {
+                          const isSelected = snapshotItems.some(i => i.name === exam.nome);
+                          const price = clientPrices[exam.nome] || 0;
+
+                          return (
+                              <div 
+                                  key={exam.id}
+                                  onClick={() => handleToggleExam(exam.nome)}
+                                  className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${isSelected ? 'bg-cyan-50 border-cyan-200' : 'bg-white border-slate-100 hover:border-slate-300'}`}
+                              >
+                                  <div className="flex items-center gap-3">
+                                      <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${isSelected ? 'bg-[#04a7bd] border-[#04a7bd]' : 'border-slate-300 bg-white'}`}>
+                                          {isSelected && <Check size={12} className="text-white" />}
+                                      </div>
+                                      <div>
+                                          <p className={`text-sm font-bold ${isSelected ? 'text-[#050a30]' : 'text-slate-600'}`}>{exam.nome}</p>
+                                          {price > 0 && <p className="text-[10px] text-slate-400">Preço tabulado: {formatCurrency(price)}</p>}
+                                      </div>
+                                  </div>
+                                  {isSelected && <span className="text-[10px] font-bold text-[#04a7bd] bg-white px-2 py-0.5 rounded-full shadow-sm">Selecionado</span>}
+                              </div>
+                          );
+                      })}
+                      {EXAMS_LIST.filter(ex => ex.nome.toLowerCase().includes(examSearchTerm.toLowerCase())).length === 0 && (
+                          <div className="text-center py-8 text-slate-400 text-sm">
+                              Nenhum exame encontrado.
+                          </div>
+                      )}
+                  </div>
+                  
+                  <div className="pt-4 mt-2 border-t border-slate-100">
+                      <button 
+                          onClick={() => setIsExamSelectionOpen(false)}
+                          className="w-full py-3 bg-[#050a30] text-white font-bold rounded-xl hover:bg-[#030720] transition-colors shadow-lg"
+                      >
+                          Concluir Seleção
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* VALUES / PRICES MODAL */}
       {isValuesModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/10 backdrop-blur-md" onClick={() => setIsValuesModalOpen(false)}></div>
-            
-            <div className="glass-panel w-full max-w-4xl rounded-[32px] relative z-10 p-8 animate-[scaleIn_0.2s_ease-out] bg-white/90 shadow-2xl border border-white/60 max-h-[90vh] flex flex-col">
-                {/* Header */}
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-                    <div>
-                        <h2 className="text-2xl font-bold tracking-tight text-[#050a30]">Tabela de Preços</h2>
-                        <p className="text-[#04a7bd] font-semibold mt-1 flex items-center gap-2">
-                            <Building2 size={16} />
-                            {selectedCliente.nome_fantasia}
-                        </p>
-                    </div>
-                    <div className="flex gap-3">
-                        {/* IMPORT EXCEL BUTTON */}
-                        <button 
-                            onClick={handleImportExcelClick}
-                            className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-5 py-2.5 rounded-full font-bold shadow-sm transition-all flex items-center gap-2"
-                        >
-                            <CloudUpload size={18} className="text-[#04a7bd]" />
-                            Importar Planilha
-                        </button>
-                        <input 
-                            type="file" 
-                            accept=".xlsx, .xls" 
-                            ref={fileInputRef} 
-                            onChange={handleExcelFileChange}
-                            className="hidden" 
-                        />
-
-                        <button 
-                            onClick={handleSavePrices}
-                            disabled={savingPrices}
-                            className="bg-[#149890] hover:bg-teal-700 text-white px-5 py-2.5 rounded-full font-bold shadow-lg shadow-[#149890]/20 transition-all flex items-center gap-2 disabled:opacity-70"
-                        >
-                            {savingPrices ? <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div> : <Save size={18} />}
-                            Salvar
-                        </button>
-                        <button 
-                            onClick={() => setIsValuesModalOpen(false)}
-                            className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
-                        >
-                            <X size={18} />
-                        </button>
-                    </div>
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setIsValuesModalOpen(false)}></div>
+          
+          <div className="glass-panel w-full max-w-4xl rounded-[28px] relative z-10 p-6 bg-white shadow-2xl border border-white/60 animate-[scaleIn_0.2s_ease-out] flex flex-col max-h-[90vh]">
+             {/* Header */}
+             <div className="flex justify-between items-center mb-6">
+                <div>
+                   <h3 className="text-xl font-bold text-[#050a30]">Tabela de Preços</h3>
+                   <p className="text-slate-500 text-sm">Gerencie os valores de exames para {selectedCliente?.nome_fantasia}</p>
                 </div>
-
-                {/* Filter */}
-                <div className="mb-6 relative">
-                    <input 
-                        type="text"
-                        placeholder="Buscar exame..."
-                        value={searchExam}
-                        onChange={(e) => setSearchExam(e.target.value)}
-                        className="glass-input w-full p-3 pl-12 rounded-2xl bg-white/50 focus:bg-white"
-                    />
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                        <Search size={20} />
-                    </div>
+                <div className="flex gap-2">
+                   <input 
+                      type="file" 
+                      ref={fileInputRef}
+                      onChange={handleExcelFileChange}
+                      className="hidden"
+                      accept=".xlsx, .xls"
+                   />
+                   <button 
+                      onClick={handleImportExcelClick}
+                      className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors flex items-center gap-2"
+                   >
+                      <CloudUpload size={16} /> Importar Excel
+                   </button>
+                   <button 
+                      onClick={() => setIsValuesModalOpen(false)}
+                      className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+                   >
+                      <X size={18} />
+                   </button>
                 </div>
+             </div>
 
-                {/* Grid Content */}
-                <div className="overflow-y-auto pr-2 custom-scrollbar flex-1 -mr-2">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {filteredExams.map((exam, idx) => {
-                            const currentPrice = priceMap[exam.nome]?.price || '';
-                            const hasDbRecord = !!priceMap[exam.nome]?.dbId;
+             {/* Search */}
+             <div className="relative mb-4">
+                 <input 
+                    type="text" 
+                    placeholder="Buscar exame..." 
+                    value={searchExam}
+                    onChange={(e) => setSearchExam(e.target.value)}
+                    className="w-full bg-slate-100 border border-transparent focus:bg-white focus:border-[#04a7bd] rounded-xl py-3 pl-10 pr-4 text-sm outline-none transition-all"
+                 />
+                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+             </div>
 
-                            return (
-                                <div 
-                                    key={idx} 
-                                    className={`
-                                        bg-white/60 p-3 rounded-xl flex items-center justify-between gap-3 transition-all duration-200 border
-                                        ${currentPrice && parseFloat(currentPrice) > 0 ? 'bg-cyan-50/50 border-cyan-100' : 'border-transparent hover:bg-white/80'}
-                                    `}
-                                >
-                                    <div className="flex items-center gap-3 min-w-0">
-                                        <div className={`
-                                            w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-slate-500
-                                            ${hasDbRecord ? 'bg-teal-50 text-[#149890]' : 'bg-slate-100'}
-                                        `}>
-                                            <Stethoscope size={16} />
-                                        </div>
-                                        <span className="text-sm font-medium text-slate-700 truncate" title={exam.nome}>
-                                            {exam.nome}
-                                        </span>
-                                    </div>
+             {/* List */}
+             <div className="overflow-y-auto flex-1 pr-2 custom-scrollbar grid grid-cols-1 md:grid-cols-2 gap-3 pb-4">
+                 {filteredExams.map((exam, idx) => {
+                      const currentPrice = priceMap[exam.nome]?.price || '';
+                      const hasDbRecord = !!priceMap[exam.nome]?.dbId;
 
-                                    <div className="relative w-24 shrink-0">
-                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">R$</span>
-                                        <input 
-                                            type="number" 
-                                            step="0.01"
-                                            placeholder="0.00"
-                                            value={currentPrice}
-                                            onChange={(e) => handlePriceMapChange(exam.nome, e.target.value)}
-                                            className={`
-                                                w-full border rounded-lg py-1.5 pl-6 pr-2 text-right font-bold text-sm focus:outline-none focus:ring-2 focus:ring-[#04a7bd]/20 transition-all
-                                                ${currentPrice ? 'bg-white border-cyan-200 text-slate-800' : 'bg-slate-50 border-transparent text-slate-400'}
-                                            `}
-                                        />
-                                    </div>
-                                </div>
-                            );
-                        })}
-                        {filteredExams.length === 0 && (
-                            <div className="col-span-full py-10 text-center text-slate-400">
-                                Nenhum exame encontrado.
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
+                      return (
+                          <div 
+                            key={idx} 
+                            className={`
+                                p-3 rounded-xl flex items-center justify-between gap-3 border transition-all
+                                ${currentPrice && parseFloat(currentPrice) > 0 ? 'bg-cyan-50/30 border-cyan-100' : 'bg-white border-slate-100'}
+                            `}
+                          >
+                              <div className="flex items-center gap-2 min-w-0">
+                                  <div className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${hasDbRecord ? 'bg-teal-50 text-[#149890]' : 'bg-slate-100 text-slate-400'}`}>
+                                      <Stethoscope size={12} />
+                                  </div>
+                                  <span className="text-xs font-bold text-slate-700 truncate" title={exam.nome}>
+                                      {exam.nome}
+                                  </span>
+                              </div>
+
+                              <div className="relative w-24 shrink-0">
+                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">R$</span>
+                                  <input 
+                                      type="number" 
+                                      step="0.01"
+                                      placeholder="0.00"
+                                      value={currentPrice}
+                                      onChange={(e) => handlePriceMapChange(exam.nome, e.target.value)}
+                                      className="w-full border rounded-lg py-1.5 pl-6 pr-2 text-right font-bold text-xs focus:outline-none focus:border-[#04a7bd] transition-all bg-white"
+                                  />
+                              </div>
+                          </div>
+                      );
+                 })}
+             </div>
+             
+             {/* Footer */}
+             <div className="pt-4 mt-2 border-t border-slate-100 flex justify-end gap-3">
+                 <button 
+                     onClick={() => setIsValuesModalOpen(false)}
+                     className="px-5 py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors text-sm"
+                 >
+                     Cancelar
+                 </button>
+                 <button 
+                     onClick={handleSavePrices}
+                     disabled={savingPrices}
+                     className="px-6 py-3 bg-[#04a7bd] text-white font-bold rounded-xl hover:bg-[#038fa3] transition-colors shadow-lg shadow-cyan-500/20 text-sm flex items-center gap-2"
+                 >
+                     {savingPrices ? 'Salvando...' : 'Salvar Tabela'}
+                 </button>
+             </div>
+          </div>
         </div>
       )}
 
       {/* SHARE MODAL */}
       {isShareModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/10 backdrop-blur-md" onClick={() => setIsShareModalOpen(false)}></div>
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-md" onClick={() => setIsShareModalOpen(false)}></div>
           
-          <div className="glass-panel w-full max-w-md rounded-[28px] relative z-10 p-8 bg-white/90 shadow-2xl border border-white/60 animate-[scaleIn_0.2s_ease-out]">
-            <div className="text-center mb-6">
-              <div className="w-14 h-14 bg-blue-50 text-[#04a7bd] rounded-full flex items-center justify-center mx-auto mb-4">
-                <Share2 size={24} />
-              </div>
-              <h3 className="text-xl font-bold text-[#050a30]">Link de Medição Gerado</h3>
-              <p className="text-slate-500 text-sm mt-1">
-                O status da medição foi alterado para <strong className="text-orange-600">Aguardando Aprovação</strong>.
-              </p>
+          <div className="bg-white w-full max-w-md rounded-[32px] relative z-10 p-8 shadow-2xl animate-[scaleIn_0.2s_ease-out] border border-white/60">
+            <div className="w-16 h-16 bg-green-50 text-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Share2 size={32} />
             </div>
+            
+            <h3 className="text-xl font-bold text-center text-[#050a30] mb-2">Link Gerado com Sucesso!</h3>
+            <p className="text-center text-slate-500 text-sm mb-6">
+              Envie este link para <strong>{selectedCliente?.nome_fantasia}</strong> visualizar a medição.
+            </p>
 
-            <div className="bg-slate-100 p-3 rounded-xl flex items-center gap-2 mb-6 border border-slate-200">
-               <input 
-                  type="text" 
-                  readOnly 
-                  value={generatedLink} 
-                  className="bg-transparent w-full text-xs text-slate-600 focus:outline-none font-mono"
-               />
-               <button 
-                onClick={copyToClipboard}
-                className="p-2 bg-white rounded-lg shadow-sm hover:text-[#04a7bd] transition-colors"
-                title="Copiar"
-               >
-                 <Copy size={16} />
-               </button>
+            <div className="bg-slate-100 p-4 rounded-xl flex items-center gap-3 mb-6 relative group">
+               <p className="text-xs text-slate-500 font-mono truncate flex-1">{generatedLink}</p>
+               <div className="absolute inset-0 bg-slate-800/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl pointer-events-none"></div>
             </div>
 
             <div className="flex gap-3">
-              <button 
+               <button 
                 onClick={() => setIsShareModalOpen(false)}
-                className="flex-1 py-3 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors"
-              >
-                Fechar
-              </button>
-              <button 
-                onClick={() => {
-                   window.open(generatedLink, '_blank');
-                   setIsShareModalOpen(false);
-                }}
-                className="flex-1 py-3 bg-[#04a7bd] text-white text-sm font-bold rounded-xl hover:bg-[#038fa3] transition-colors shadow-lg shadow-[#04a7bd]/20"
-              >
-                Abrir Link
-              </button>
+                className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-colors"
+               >
+                 Fechar
+               </button>
+               <button 
+                onClick={copyToClipboard}
+                className="flex-1 py-3 bg-[#050a30] text-white font-bold rounded-xl hover:bg-[#030720] transition-colors shadow-lg flex items-center justify-center gap-2"
+               >
+                 <Copy size={18} />
+                 Copiar Link
+               </button>
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 };
