@@ -687,14 +687,20 @@ const Medicoes: React.FC = () => {
 
     const snapshotTotal = initialSnapshotItems.reduce((acc, item) => acc + (parseFloat(item.value) || 0), 0);
     
-    let baseTotal = receita.valor_total || 0;
+    let baseTotal = 0;
     const esocVal = receita.valor_esoc || 0;
-    
-    if (receita.descricao?.includes('Atendimento - ') && esocVal > 0) {
-        baseTotal = baseTotal - (esocVal * 2);
-        if (baseTotal < 0) baseTotal = 0; 
-    } else if (snapshotTotal > 0 && (!receita.valor_total || receita.valor_total === 0)) {
+
+    // CORREÇÃO: Se houver itens na lista (snapshot), o valor base DEVE ser a soma deles.
+    // Isso garante que o valor exibido bata com a lista visual.
+    if (initialSnapshotItems.length > 0) {
         baseTotal = snapshotTotal;
+    } else {
+        // Fallback: Se não houver itens, tenta deduzir do total salvo no banco
+        baseTotal = receita.valor_total || 0;
+        if (esocVal > 0) {
+            baseTotal = baseTotal - (esocVal * 2);
+            if (baseTotal < 0) baseTotal = 0; 
+        }
     }
 
     let finalEsocValue = '';
@@ -838,7 +844,7 @@ const Medicoes: React.FC = () => {
       const esocialUnitValue = formData.valor_esoc ? parseFloat(formData.valor_esoc) : 0;
       
       let finalTotalValue = baseTotalValue;
-      if (selectedCliente.envia_esoc && formData.descricao.includes('Atendimento - ') && esocialUnitValue > 0) {
+      if (selectedCliente.envia_esoc && esocialUnitValue > 0) {
           finalTotalValue = baseTotalValue + (esocialUnitValue * 2);
       }
 
@@ -1716,13 +1722,13 @@ const Medicoes: React.FC = () => {
                         <div className="mt-auto">
                             <div className="bg-[#050a30] text-white p-6 rounded-2xl shadow-xl shadow-[#050a30]/20 relative overflow-hidden">
                                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10"></div>
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Valor Total da Medição</p>
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Valor Total do Atendimento</p>
                                 <div className="flex items-baseline gap-1">
                                     <span className="text-lg font-medium text-slate-400">R$</span>
                                     <span className="text-4xl font-bold tracking-tight">
                                         {(() => {
                                             const base = parseFloat(formData.valor_total) || 0;
-                                            const esoc = (selectedCliente.envia_esoc && formData.descricao.includes('Atendimento - ')) 
+                                            const esoc = (selectedCliente.envia_esoc && parseFloat(formData.valor_esoc) > 0) 
                                                 ? (parseFloat(formData.valor_esoc) || 0) * 2 
                                                 : 0;
                                             return (base + esoc).toFixed(2).replace('.', ',');
