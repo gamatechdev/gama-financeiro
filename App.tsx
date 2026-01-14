@@ -5,14 +5,15 @@ import Receitas from './components/Receitas';
 import Despesas from './components/Despesas';
 import Dashboard from './components/Dashboard';
 import Medicoes from './components/Medicoes';
+import Empresas from './components/Empresas';
 import PrecoExames from './components/PrecoExames'; 
 import PublicMedicao from './components/PublicMedicao'; 
-import { LayoutDashboard, Wallet, LogOut, User as UserIcon, TrendingDown, FileText, Tag } from 'lucide-react';
+import { LayoutDashboard, Wallet, LogOut, User as UserIcon, TrendingDown, FileText, Tag, Building } from 'lucide-react';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'receitas' | 'despesas' | 'medicoes' | 'precos'>('receitas');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'receitas' | 'despesas' | 'medicoes' | 'precos' | 'empresas'>('receitas');
 
   // Logic for Public Links
   const params = new URLSearchParams(window.location.search);
@@ -100,6 +101,13 @@ const App: React.FC = () => {
               <span className="hidden lg:block">Medições</span>
             </button>
             <button 
+              onClick={() => setActiveTab('empresas')}
+              className={`w-full p-3 rounded-2xl flex items-center gap-3 transition-all ${activeTab === 'empresas' ? 'bg-[#04a7bd] text-white shadow-lg shadow-[#04a7bd]/20' : 'text-slate-500 hover:bg-slate-100 hover:text-[#050a30]'}`}
+            >
+              <Building size={22} />
+              <span className="hidden lg:block">Empresas</span>
+            </button>
+            <button 
               onClick={() => setActiveTab('precos')}
               className={`w-full p-3 rounded-2xl flex items-center gap-3 transition-all ${activeTab === 'precos' ? 'bg-[#04a7bd] text-white shadow-lg shadow-[#04a7bd]/20' : 'text-slate-500 hover:bg-slate-100 hover:text-[#050a30]'}`}
             >
@@ -141,6 +149,7 @@ const App: React.FC = () => {
           {activeTab === 'receitas' && <Receitas />}
           {activeTab === 'despesas' && <Despesas />}
           {activeTab === 'medicoes' && <Medicoes />}
+          {activeTab === 'empresas' && <Empresas />}
           {activeTab === 'dashboard' && <Dashboard />}
           {activeTab === 'precos' && <PrecoExames />}
         </div>

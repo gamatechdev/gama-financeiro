@@ -1,12 +1,29 @@
 
 export interface Cliente {
   id: string;
-  nome_fantasia: string;
-  razao_social: string;
-  status_medicao?: string | null; // 'Aguardando' | 'Aceita' | 'Recusada' | null
-  aprovado_por?: any | null; // JSON array [nome, cpf] or object
-  envia_esoc?: boolean; // Novo campo
-  valor_esoc?: number | null; // Valor padrão do eSocial para este cliente
+  razao_social: string | null;
+  nome_fantasia: string | null;
+  cnpj: string | null;
+  email: string | null;
+  telefone: string | null;
+  endereco: string | null;
+  status: string | null;
+  fatura_para: string | null;
+  fatura_em: number | null; // Dia do faturamento
+  servicos: string[] | null; // Array de textos
+  valor_total: number | null;
+  faturou_em: string | null; // Timestamp
+  created_at?: string;
+  responsavel: string | null;
+  clientefrequente: boolean | null;
+  cargos?: any[] | null; // Array de bigints, mantido genérico
+  tipo: number; // bigint, default 1
+  cliente_propostas?: any[] | null;
+  status_medicao: string | null; // 'Aguardando' | 'Aceita' | 'Recusada' | null
+  aprovado_por: any[] | null; // JSON array ou text array
+  modalidade: string | null;
+  envia_esoc: boolean | null; 
+  valor_esoc: number | null; 
 }
 
 export interface Unidade {
@@ -26,7 +43,7 @@ export interface FinanceiroReceita {
   descricao: string | null;
   clientes?: Cliente; // Direct join
   status: string | null;
-  exames_snapshot?: string[] | null; // Array de nomes de exames
+  exames_snapshot?: any[] | null; // Array de objetos ou strings
   // Campos específicos de tipo de receita
   valor_med?: number | null;
   valor_esoc?: number | null;
