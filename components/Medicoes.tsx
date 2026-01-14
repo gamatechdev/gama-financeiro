@@ -96,6 +96,7 @@ const Medicoes: React.FC = () => {
   // Prices Management State
   const [priceMap, setPriceMap] = useState<Record<string, { price: string, dbId: number | null }>>({});
   const [searchExam, setSearchExam] = useState('');
+  const [priceFilter, setPriceFilter] = useState<'all' | 'filled' | 'empty'>('all'); // NEW FILTER STATE
   const [savingPrices, setSavingPrices] = useState(false);
   
   // Excel Import Ref
@@ -257,6 +258,7 @@ const Medicoes: React.FC = () => {
 
   const handleOpenValues = () => {
       fetchClientPrices();
+      setPriceFilter('all'); // Reset filter
       setIsValuesModalOpen(true);
   };
 
@@ -523,10 +525,21 @@ const Medicoes: React.FC = () => {
   };
 
   const filteredExams = useMemo(() => {
-    return EXAMS_LIST.filter(exam => 
-      exam.nome.toLowerCase().includes(searchExam.toLowerCase())
-    );
-  }, [searchExam]);
+    return EXAMS_LIST.filter(exam => {
+        // 1. Text Search
+        const matchesSearch = exam.nome.toLowerCase().includes(searchExam.toLowerCase());
+        
+        // 2. Filter (Filled vs Empty)
+        const currentPrice = priceMap[exam.nome]?.price;
+        const hasPrice = currentPrice && parseFloat(currentPrice) > 0;
+        
+        let matchesFilter = true;
+        if (priceFilter === 'filled') matchesFilter = hasPrice;
+        if (priceFilter === 'empty') matchesFilter = !hasPrice;
+
+        return matchesSearch && matchesFilter;
+    });
+  }, [searchExam, priceFilter, priceMap]);
 
 
   // Actions
@@ -1901,6 +1914,28 @@ const Medicoes: React.FC = () => {
                     className="w-full bg-slate-100 border border-transparent focus:bg-white focus:border-[#04a7bd] rounded-xl py-3 pl-10 pr-4 text-sm outline-none transition-all"
                  />
                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+             </div>
+
+             {/* Filter Buttons */}
+             <div className="flex gap-2 mb-4">
+                <button
+                    onClick={() => setPriceFilter('all')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${priceFilter === 'all' ? 'bg-[#04a7bd] text-white border-[#04a7bd]' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
+                >
+                    Todos
+                </button>
+                <button
+                    onClick={() => setPriceFilter('filled')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${priceFilter === 'filled' ? 'bg-[#04a7bd] text-white border-[#04a7bd]' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
+                >
+                    Com Valor
+                </button>
+                <button
+                    onClick={() => setPriceFilter('empty')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${priceFilter === 'empty' ? 'bg-[#04a7bd] text-white border-[#04a7bd]' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
+                >
+                    Sem Valor
+                </button>
              </div>
 
              {/* List */}
