@@ -6,14 +6,16 @@ import Despesas from './components/Despesas';
 import Dashboard from './components/Dashboard';
 import Medicoes from './components/Medicoes';
 import Empresas from './components/Empresas';
-import PrecoExames from './components/PrecoExames'; 
 import PublicMedicao from './components/PublicMedicao'; 
-import { LayoutDashboard, Wallet, LogOut, User as UserIcon, TrendingDown, FileText, Tag, Building } from 'lucide-react';
+import { LayoutDashboard, Wallet, LogOut, User as UserIcon, TrendingDown, FileText, Building } from 'lucide-react';
+import { User } from './types';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'receitas' | 'despesas' | 'medicoes' | 'precos' | 'empresas'>('receitas');
+  const [userProfile, setUserProfile] = useState<User | null>(null);
+  // Alterado valor inicial de 'receitas' para 'dashboard'
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'receitas' | 'despesas' | 'medicoes' | 'empresas'>('dashboard');
 
   // Logic for Public Links
   const params = new URLSearchParams(window.location.search);
@@ -24,16 +26,40 @@ const App: React.FC = () => {
      return <PublicMedicao dataToken={publicDataToken} />;
   }
 
+  const fetchUserProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+      
+      if (!error && data) {
+        setUserProfile(data);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar perfil:', error);
+    }
+  };
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setLoading(false);
+      if (session?.user) {
+        fetchUserProfile(session.user.id);
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (session?.user) {
+        fetchUserProfile(session.user.id);
+      } else {
+        setUserProfile(null);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -65,9 +91,11 @@ const App: React.FC = () => {
       <aside className="w-full md:w-20 lg:w-64 glass-panel border-r-0 md:border-r border-b md:border-b-0 flex flex-col justify-between z-20 sticky top-0 md:h-screen">
         <div>
           <div className="p-6 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#04a7bd] to-[#149890] flex items-center justify-center shadow-lg shadow-[#04a7bd]/20 text-white">
-              <span className="font-bold text-lg">G</span>
-            </div>
+            <img 
+              src="https://wofipjazcxwxzzxjsflh.supabase.co/storage/v1/object/public/Media/Image/image-removebg-preview%20(2).png" 
+              alt="Gama Center Logo" 
+              className="w-10 h-10 object-contain"
+            />
             <span className="font-semibold text-lg hidden lg:block tracking-tight text-[#050a30]">Gama Center</span>
           </div>
 
@@ -78,13 +106,6 @@ const App: React.FC = () => {
             >
               <LayoutDashboard size={22} />
               <span className="hidden lg:block">Dashboard</span>
-            </button>
-            <button 
-              onClick={() => setActiveTab('receitas')}
-              className={`w-full p-3 rounded-2xl flex items-center gap-3 transition-all ${activeTab === 'receitas' ? 'bg-[#04a7bd] text-white shadow-lg shadow-[#04a7bd]/20' : 'text-slate-500 hover:bg-slate-100 hover:text-[#050a30]'}`}
-            >
-              <Wallet size={22} />
-              <span className="hidden lg:block">Receitas</span>
             </button>
             <button 
               onClick={() => setActiveTab('despesas')}
@@ -108,23 +129,31 @@ const App: React.FC = () => {
               <span className="hidden lg:block">Empresas</span>
             </button>
             <button 
-              onClick={() => setActiveTab('precos')}
-              className={`w-full p-3 rounded-2xl flex items-center gap-3 transition-all ${activeTab === 'precos' ? 'bg-[#04a7bd] text-white shadow-lg shadow-[#04a7bd]/20' : 'text-slate-500 hover:bg-slate-100 hover:text-[#050a30]'}`}
+              onClick={() => setActiveTab('receitas')}
+              className={`w-full p-3 rounded-2xl flex items-center gap-3 transition-all ${activeTab === 'receitas' ? 'bg-[#04a7bd] text-white shadow-lg shadow-[#04a7bd]/20' : 'text-slate-500 hover:bg-slate-100 hover:text-[#050a30]'}`}
             >
-              <Tag size={22} />
-              <span className="hidden lg:block">Preço Exames</span>
+              <Wallet size={22} />
+              <span className="hidden lg:block">Receitas</span>
             </button>
           </nav>
         </div>
 
         <div className="p-4 border-t border-slate-200/50">
           <div className="flex items-center gap-3 mb-4 px-2">
-            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden text-slate-500">
-               <UserIcon size={16} />
+            <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden text-slate-500 border border-slate-100 shrink-0">
+               {userProfile?.img_url ? (
+                 <img src={userProfile.img_url} alt="Profile" className="w-full h-full object-cover" />
+               ) : (
+                 <UserIcon size={20} />
+               )}
             </div>
-            <div className="hidden lg:block overflow-hidden">
-              <p className="text-sm font-medium truncate text-slate-700">{session.user.email}</p>
-              <p className="text-xs text-slate-400">Usuário</p>
+            <div className="hidden lg:block overflow-hidden min-w-0">
+              <p className="text-sm font-bold truncate text-[#050a30]">
+                {userProfile?.username || 'Usuário'}
+              </p>
+              <p className="text-xs text-slate-400 truncate" title={session.user.email}>
+                {session.user.email}
+              </p>
             </div>
           </div>
           <button 
@@ -132,7 +161,7 @@ const App: React.FC = () => {
             className="w-full p-2 rounded-xl text-red-500 hover:bg-red-50 flex items-center justify-center lg:justify-start gap-2 transition-colors"
           >
             <LogOut size={18} />
-            <span className="hidden lg:block text-sm">Sair</span>
+            <span className="hidden lg:block text-sm font-medium">Sair</span>
           </button>
         </div>
       </aside>
@@ -151,7 +180,6 @@ const App: React.FC = () => {
           {activeTab === 'medicoes' && <Medicoes />}
           {activeTab === 'empresas' && <Empresas />}
           {activeTab === 'dashboard' && <Dashboard />}
-          {activeTab === 'precos' && <PrecoExames />}
         </div>
       </main>
     </div>
