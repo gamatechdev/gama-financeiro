@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { FinanceiroDespesa } from '../types';
 import { 
   Plus, Trash2, Calendar, TrendingDown, Layers, CheckCircle, 
-  X, Check, Search, Filter, ChevronLeft, ChevronRight, ChevronDown, Tag, CreditCard, Briefcase, RefreshCw, Edit, LayoutGrid, List, UserCog, Users, DollarSign, ArrowRight, Percent, Split, AlertTriangle
+  X, Check, Search, Filter, ChevronLeft, ChevronRight, ChevronDown, Tag, CreditCard, Briefcase, RefreshCw, Edit, LayoutGrid, List, UserCog, Users, DollarSign, ArrowRight, Percent, Split, AlertTriangle, Building2, FileText, AlignLeft
 } from 'lucide-react';
 
 interface ProviderGroup {
@@ -14,10 +14,14 @@ interface ProviderGroup {
   firstValue: number; 
 }
 
-const CATEGORIES_LIST = ['Medicina', 'Segurança', 'Investimento', 'Operacional'];
+interface Gerencia {
+  id: number;
+  descricao: string;
+}
 
 const Despesas: React.FC = () => {
   const [despesas, setDespesas] = useState<FinanceiroDespesa[]>([]);
+  const [gerenciasList, setGerenciasList] = useState<Gerencia[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -25,6 +29,7 @@ const Despesas: React.FC = () => {
   const [editingId, setEditingId] = useState<number | null>(null);
 
   const [isSplitMode, setIsSplitMode] = useState(false);
+  // splitPercentages keys will now be the gerencia ID (as string)
   const [splitPercentages, setSplitPercentages] = useState<Record<string, string>>({});
 
   const [isProviderModalOpen, setIsProviderModalOpen] = useState(false);
@@ -50,7 +55,9 @@ const Despesas: React.FC = () => {
     nome: '',
     desc: '',
     fornecedor: '',
-    categoria: '',
+    categoria: '', // Agora visualmente "Setor"
+    nova_categoria: '', // Novo campo: Investimento, Custo fixo...
+    gerencia_id: '', // Novo campo: ID da tabela gerencias
     forma_pagamento: '',
     centro_custos: '',
     responsavel: 'Gama Medicina',
@@ -71,6 +78,16 @@ const Despesas: React.FC = () => {
 
       if (despesasError) throw despesasError;
       setDespesas(despesasData as any || []);
+      
+      // Fetch Gerencias
+      const { data: gerenciasData, error: gerenciasError } = await supabase
+        .from('gerencias')
+        .select('id, descricao')
+        .order('descricao');
+      
+      if (!gerenciasError && gerenciasData) {
+        setGerenciasList(gerenciasData);
+      }
 
     } catch (error: any) {
       console.error('Error fetching data:', error.message || JSON.stringify(error));
@@ -265,6 +282,8 @@ const Despesas: React.FC = () => {
         desc: '',
         fornecedor: '',
         categoria: '',
+        nova_categoria: '',
+        gerencia_id: '',
         forma_pagamento: '',
         centro_custos: '',
         responsavel: 'Gama Medicina',
@@ -281,11 +300,18 @@ const Despesas: React.FC = () => {
     setEditingId(despesa.id);
     setIsSplitMode(false); 
     setSplitPercentages({});
+    
+    // Attempt to resolve Gerencia ID from centro_custos name
+    const matchedGerencia = gerenciasList.find(g => g.descricao === despesa.centro_custos);
+    const gId = matchedGerencia ? matchedGerencia.id.toString() : '';
+
     setFormData({
         nome: despesa.nome || '',
         desc: despesa.desc || '',
         fornecedor: despesa.fornecedor || '',
         categoria: despesa.categoria || '',
+        nova_categoria: '', // Requires user to re-select if they want to update meta/logic
+        gerencia_id: gId, 
         forma_pagamento: despesa.forma_pagamento || '',
         centro_custos: despesa.centro_custos || '',
         responsavel: despesa.responsavel || 'Gama Medicina',
@@ -336,85 +362,85 @@ const Despesas: React.FC = () => {
     setIsProviderModalOpen(true);
   };
 
-  const handleBulkUpdateValue = async () => {
-    if (!selectedProviderGroup || !bulkServiceValue) return;
-    setSubmitting(true);
-
-    try {
-        const newVal = parseFloat(bulkServiceValue.replace(',', '.'));
-        if (isNaN(newVal)) throw new Error("Valor inválido");
-
-        const { error } = await supabase
-            .from('financeiro_despesas')
-            .update({ valor: newVal })
-            .in('id', selectedProviderGroup.ids);
-        
-        if (error) throw error;
-
-        setDespesas(prev => prev.map(d => {
-            if (selectedProviderGroup.ids.includes(d.id)) {
-                return { ...d, valor: newVal };
-            }
-            return d;
-        }));
-
-        setIsProviderModalOpen(false);
-        fetchBaseData();
-
-    } catch (err: any) {
-        console.error("Error bulk updating:", err);
-        alert("Erro ao atualizar valores.");
-    } finally {
-        setSubmitting(false);
-    }
-  };
-
-  const handleBulkPay = async () => {
-    if (!selectedProviderGroup) return;
-    const targetIds = selectedProviderGroup.ids;
-    if (!targetIds || targetIds.length === 0) return;
-
-    setSubmitting(true);
-
-    try {
-        const { error } = await supabase
-            .from('financeiro_despesas')
-            .update({ status: 'Pago' })
-            .in('id', targetIds)
-            .select();
-        
-        if (error) throw error;
-
-        setDespesas(prev => prev.map(d => {
-            if (targetIds.includes(d.id)) {
-                return { ...d, status: 'Pago' };
-            }
-            return d;
-        }));
-
-        setIsProviderModalOpen(false);
-        fetchBaseData();
-
-    } catch (err: any) {
-        console.error("CATCH ERROR:", err);
-        alert(`Falha ao realizar pagamento: ${err.message || 'Erro desconhecido'}`);
-    } finally {
-        setSubmitting(false);
-    }
-  };
-
-  const updateSplitPercentage = (category: string, value: string) => {
-    const newVal = parseFloat(value);
-    
+  // Change: Key is now gerencia_id (string)
+  const updateSplitPercentage = (id: string, value: string) => {
     setSplitPercentages(prev => ({
       ...prev,
-      [category]: value
+      [id]: value
     }));
   };
 
   const totalSplitPercent = useMemo(() => {
     return Object.values(splitPercentages).reduce((acc: number, val: any) => acc + (parseFloat(val as string) || 0), 0);
   }, [splitPercentages]);
+
+  const updateGerenciaMeta = async (gerenciaId: number, categoria: string, valor: number, dateString: string) => {
+      if (!gerenciaId || !categoria || !valor || !dateString) return;
+
+      const date = new Date(dateString);
+      const year = date.getFullYear();
+      const month = date.getMonth(); // 0-11
+      
+      // Calculate start and end of that month
+      const startOfMonth = new Date(year, month, 1).toISOString();
+      const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
+
+      const colMap: Record<string, string> = {
+        'Investimento': 'in',
+        'Custo fixo': 'cf',
+        'Custo variavel': 'cv',
+        'Despesa fixa': 'df',
+        'Despesa variavel': 'dv'
+      };
+
+      const column = colMap[categoria];
+      if (!column) return;
+
+      try {
+          // Check if row exists for this gerencia and month
+          const { data: existingRows, error: fetchError } = await supabase
+              .from('gerencia_meta')
+              .select('*')
+              .eq('gerencia', gerenciaId)
+              .gte('created_at', startOfMonth)
+              .lte('created_at', endOfMonth);
+          
+          if (fetchError) throw fetchError;
+
+          if (existingRows && existingRows.length > 0) {
+              // Update existing row (SUM)
+              const row = existingRows[0];
+              const currentVal = row[column] || 0;
+              const newVal = currentVal + valor;
+
+              const { error: updateError } = await supabase
+                  .from('gerencia_meta')
+                  .update({ [column]: newVal })
+                  .eq('id', row.id);
+              
+              if (updateError) throw updateError;
+          } else {
+              // Create new row
+              const { error: insertError } = await supabase
+                  .from('gerencia_meta')
+                  .insert({
+                      gerencia: gerenciaId,
+                      created_at: dateString, // Using the expense date as creation date for the meta record
+                      [column]: valor,
+                      faturamento: 0,
+                      in: column === 'in' ? valor : 0,
+                      cf: column === 'cf' ? valor : 0,
+                      cv: column === 'cv' ? valor : 0,
+                      df: column === 'df' ? valor : 0,
+                      dv: column === 'dv' ? valor : 0
+                  });
+              
+              if (insertError) throw insertError;
+          }
+      } catch (err) {
+          console.error("Erro ao atualizar gerencia_meta:", err);
+      }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -424,11 +450,18 @@ const Despesas: React.FC = () => {
       const totalValue = formData.valor ? parseFloat(formData.valor) : 0;
       const numInstallments = formData.qnt_parcela ? parseInt(formData.qnt_parcela) : 1;
       
-      const payloads = [];
+      const payloads: any[] = [];
+      const gerenciaUpdates: any[] = []; // Track updates for meta table
 
-      const generatePayloads = (val: number, cat: string) => {
+      // Modified to accept overrides for split logic
+      const generatePayloads = (val: number, cat: string, specificGerenciaId?: number, specificGerenciaName?: string) => {
           const installmentValue = numInstallments > 0 ? val / numInstallments : val;
           const currentPayloads = [];
+
+          // Use the specific gerencia ID if splitting, otherwise use the form's global ID
+          const targetGerenciaId = specificGerenciaId || (formData.gerencia_id ? parseInt(formData.gerencia_id) : null);
+          // If splitting, we override the centro_custos with the gerencia name so the user sees it in the list
+          const targetCentroCustos = specificGerenciaName || formData.centro_custos;
 
           if (formData.data_projetada && numInstallments > 1) {
              const [y, m, d] = formData.data_projetada.split('-').map(Number);
@@ -440,48 +473,77 @@ const Despesas: React.FC = () => {
                let desc = formData.desc || '';
                desc = `${desc} (Parcela ${i + 1}/${numInstallments})`.trim();
   
-               currentPayloads.push({
+               const p = {
                  nome: formData.nome,
                  desc: desc,
                  fornecedor: formData.fornecedor,
-                 categoria: cat,
+                 categoria: cat, // "Setor" in UI
                  forma_pagamento: formData.forma_pagamento,
-                 centro_custos: formData.centro_custos,
+                 centro_custos: targetCentroCustos, 
                  responsavel: formData.responsavel,
                  valor: installmentValue,
                  data_projetada: dueDateStr,
                  status: formData.status,
                  qnt_parcela: numInstallments,
                  recorrente: formData.recorrente
-               });
+               };
+               currentPayloads.push(p);
+               
+               // Prepare meta update
+               if (targetGerenciaId && formData.nova_categoria) {
+                   gerenciaUpdates.push({
+                       gerenciaId: targetGerenciaId,
+                       categoria: formData.nova_categoria,
+                       valor: installmentValue,
+                       date: dueDateStr
+                   });
+               }
              }
           } else {
-            currentPayloads.push({
+            const p = {
               nome: formData.nome,
               desc: formData.desc,
               fornecedor: formData.fornecedor,
               categoria: cat,
               forma_pagamento: formData.forma_pagamento,
-              centro_custos: formData.centro_custos,
+              centro_custos: targetCentroCustos,
               responsavel: formData.responsavel,
               valor: val,
               data_projetada: formData.data_projetada || null,
               status: formData.status,
               qnt_parcela: 1,
               recorrente: formData.recorrente
-            });
+            };
+            currentPayloads.push(p);
+
+            // Prepare meta update
+            if (targetGerenciaId && formData.nova_categoria && formData.data_projetada) {
+                 gerenciaUpdates.push({
+                     gerenciaId: targetGerenciaId,
+                     categoria: formData.nova_categoria,
+                     valor: val,
+                     date: formData.data_projetada
+                 });
+             }
           }
           return currentPayloads;
       };
 
-      if (editingId) {
+      if (editingId && !isSplitMode) {
+         // Normal Edit Mode (No Splitting)
+         let finalCentroCustos = formData.centro_custos;
+         if (formData.gerencia_id) {
+             const g = gerenciasList.find(x => x.id.toString() === formData.gerencia_id);
+             if (g) finalCentroCustos = g.descricao;
+         }
+
          const payload = {
             nome: formData.nome,
             desc: formData.desc,
             fornecedor: formData.fornecedor,
             categoria: formData.categoria,
             forma_pagamento: formData.forma_pagamento,
-            centro_custos: formData.centro_custos,
+            centro_custos: finalCentroCustos,
             responsavel: formData.responsavel,
             valor: totalValue,
             data_projetada: formData.data_projetada || null,
@@ -496,7 +558,16 @@ const Despesas: React.FC = () => {
 
          if (error) throw error;
 
+         // Note: We don't retroactively update gerencia_meta on simple edit as it requires complex reconciliation.
+         // If user wants to update meta, they should use the split functionality or delete and recreate.
+
       } else {
+        // Insert Mode OR Edit-with-Split Mode
+        if (editingId && isSplitMode) {
+            // If we are splitting an existing record, we delete the original and recreate as multiple records.
+            const { error: delError } = await supabase.from('financeiro_despesas').delete().eq('id', editingId);
+            if (delError) throw delError;
+        }
         
         if (isSplitMode) {
              if (Math.abs(totalSplitPercent - 100) > 0.1) {
@@ -505,24 +576,44 @@ const Despesas: React.FC = () => {
                  return;
              }
 
-             Object.entries(splitPercentages).forEach(([cat, percentage]) => {
-                const perc = parseFloat(percentage as string);
+             // Iterate over gerencias to find which ones have percentage assigned
+             gerenciasList.forEach(gerencia => {
+                const perc = parseFloat(splitPercentages[gerencia.id.toString()] || '0');
                 if (perc > 0) {
                     const splitVal = totalValue * (perc / 100);
-                    payloads.push(...generatePayloads(splitVal, cat));
+                    // Generate payload for this specific Gerencia
+                    // We use the same 'categoria' (Setor) for all, but different Gerencia/Cost Center
+                    payloads.push(...generatePayloads(splitVal, formData.categoria, gerencia.id, gerencia.descricao));
                 }
              });
              
              if (payloads.length === 0) {
+                 // Fallback if something went wrong
                 payloads.push(...generatePayloads(totalValue, formData.categoria));
              }
 
         } else {
-             payloads.push(...generatePayloads(totalValue, formData.categoria));
+             // Fallback for Insert without split
+             // Resolve single gerencia name
+             let singleGerenciaName = formData.centro_custos;
+             if (formData.gerencia_id) {
+                 const g = gerenciasList.find(x => x.id.toString() === formData.gerencia_id);
+                 if (g) singleGerenciaName = g.descricao;
+             }
+             
+             // We pass undefined for overrides so it uses formData normally, but we ensure centro_custos is set correctly
+             // Actually generatePayloads uses formData.centro_custos if no override.
+             // Let's override it to be safe if gerencia_id is selected.
+             payloads.push(...generatePayloads(totalValue, formData.categoria, undefined, singleGerenciaName));
         }
 
         const { error } = await supabase.from('financeiro_despesas').insert(payloads);
         if (error) throw error;
+
+        // Process Gerencia Meta Updates
+        for (const update of gerenciaUpdates) {
+            await updateGerenciaMeta(update.gerenciaId, update.categoria, update.valor, update.date);
+        }
       }
       
       setIsModalOpen(false);
@@ -925,7 +1016,7 @@ const Despesas: React.FC = () => {
           <div className="glass-panel rounded-[32px] overflow-hidden pb-4">
                <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50/50 border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider">
                   <div className="col-span-4">Nome / Fornecedor</div>
-                  <div className="col-span-2">Categoria</div>
+                  <div className="col-span-2">Setor</div>
                   <div className="col-span-2">Vencimento</div>
                   <div className="col-span-2">Valor</div>
                   <div className="col-span-2 text-right">Ações</div>
@@ -1019,291 +1110,350 @@ const Despesas: React.FC = () => {
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/10 backdrop-blur-md" onClick={() => setIsModalOpen(false)}></div>
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-md" onClick={() => setIsModalOpen(false)}></div>
           
-          <div className="glass-panel w-full max-w-lg rounded-[32px] relative z-10 p-8 animate-[scaleIn_0.2s_ease-out] bg-white/80 shadow-2xl border border-white/60 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h3 className="text-2xl font-bold text-[#050a30]">{editingId ? 'Editar Despesa' : 'Nova Despesa'}</h3>
-                <p className="text-slate-500 text-sm">Registre ou altere uma saída financeira</p>
-              </div>
-              <button 
-                onClick={() => setIsModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
-              >
-                <X size={18} />
-              </button>
+          <div className="glass-panel w-full max-w-5xl rounded-[32px] relative z-10 p-0 overflow-hidden bg-white/95 shadow-2xl border border-white/60 animate-[scaleIn_0.2s_ease-out] flex flex-col max-h-[95vh]">
+            
+            {/* Header */}
+            <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-white/50 backdrop-blur-sm">
+                <div>
+                    <h3 className="text-2xl font-bold text-[#050a30]">{editingId ? 'Editar Despesa' : 'Nova Despesa'}</h3>
+                    <p className="text-slate-500 text-sm">Preencha os detalhes do lançamento</p>
+                </div>
+                <button 
+                    onClick={() => setIsModalOpen(false)}
+                    className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+                >
+                    <X size={20} />
+                </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              
-              <div className="bg-slate-100/50 p-1.5 rounded-2xl flex relative">
-                <button
-                  type="button"
-                  onClick={() => setFormData({...formData, responsavel: 'Gama Medicina'})}
-                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${formData.responsavel === 'Gama Medicina' ? 'bg-white shadow-sm text-[#050a30]' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                  Gama Medicina
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormData({...formData, responsavel: 'Gama Soluções'})}
-                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${formData.responsavel === 'Gama Soluções' ? 'bg-white shadow-sm text-[#050a30]' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                  Gama Soluções
-                </button>
-              </div>
+            <form id="expenseForm" onSubmit={handleSubmit} className="flex-1 overflow-y-auto custom-scrollbar p-0">
+                <div className="grid grid-cols-1 lg:grid-cols-12 min-h-full">
+                    
+                    {/* LEFT COLUMN: CORE DATA */}
+                    <div className="lg:col-span-7 p-8 space-y-8 border-r border-slate-100">
+                        
+                        <div className="space-y-4">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 flex items-center gap-1">
+                                <UserCog size={12} /> Responsável
+                            </label>
+                            <div className="bg-slate-100/50 p-1.5 rounded-2xl flex relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({...formData, responsavel: 'Gama Medicina'})}
+                                    className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all duration-200 ${formData.responsavel === 'Gama Medicina' ? 'bg-white shadow-sm text-[#050a30]' : 'text-slate-500 hover:text-slate-700'}`}
+                                >
+                                    Gama Medicina
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({...formData, responsavel: 'Gama Soluções'})}
+                                    className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all duration-200 ${formData.responsavel === 'Gama Soluções' ? 'bg-white shadow-sm text-[#050a30]' : 'text-slate-500 hover:text-slate-700'}`}
+                                >
+                                    Gama Soluções
+                                </button>
+                            </div>
+                        </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Título / Nome</label>
-                <input 
-                  type="text"
-                  required
-                  value={formData.nome}
-                  onChange={(e) => setFormData({...formData, nome: e.target.value})}
-                  className="glass-input w-full p-4 rounded-2xl font-medium bg-white/50"
-                  placeholder="Ex: Compra de Materiais"
-                />
-              </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 flex items-center gap-1">
+                                <FileText size={12} /> Título / Descrição Curta
+                            </label>
+                            <input 
+                                type="text"
+                                required
+                                value={formData.nome}
+                                onChange={(e) => setFormData({...formData, nome: e.target.value})}
+                                className="glass-input w-full p-4 rounded-2xl font-bold text-lg bg-white/50"
+                                placeholder="Ex: Compra de Equipamentos"
+                            />
+                        </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                 <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Valor Total</label>
-                    <input 
-                      type="number"
-                      step="0.01"
-                      required
-                      value={formData.valor}
-                      onChange={(e) => setFormData({...formData, valor: e.target.value})}
-                      className="glass-input w-full p-4 rounded-2xl font-semibold bg-white/50"
-                      placeholder="0.00"
-                    />
-                 </div>
-                 <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Parcelas</label>
-                    <input 
-                      type="number"
-                      required
-                      min="1"
-                      value={formData.qnt_parcela}
-                      onChange={(e) => setFormData({...formData, qnt_parcela: e.target.value})}
-                      className="glass-input w-full p-4 rounded-2xl bg-white/50"
-                      placeholder="1"
-                      disabled={formData.recorrente} 
-                    />
-                 </div>
-              </div>
+                        <div className="grid grid-cols-2 gap-6">
+                             <div className="space-y-2">
+                                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 flex items-center gap-1">
+                                    <DollarSign size={12} /> Valor Total
+                                </label>
+                                <div className="relative">
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">R$</span>
+                                    <input 
+                                        type="number"
+                                        step="0.01"
+                                        required
+                                        value={formData.valor}
+                                        onChange={(e) => setFormData({...formData, valor: e.target.value})}
+                                        className="glass-input w-full p-4 pl-10 rounded-2xl font-bold text-2xl text-slate-800 bg-white/50"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                             </div>
+                             <div className="space-y-2">
+                                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 flex items-center gap-1">
+                                    <Layers size={12} /> Parcelas
+                                </label>
+                                <input 
+                                    type="number"
+                                    required
+                                    min="1"
+                                    value={formData.qnt_parcela}
+                                    onChange={(e) => setFormData({...formData, qnt_parcela: e.target.value})}
+                                    className="glass-input w-full p-4 rounded-2xl font-bold bg-white/50"
+                                    placeholder="1"
+                                    disabled={formData.recorrente} 
+                                />
+                             </div>
+                        </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Vencimento (1ª Parc.)</label>
-                <input 
-                  type="date"
-                  required
-                  value={formData.data_projetada}
-                  onChange={(e) => setFormData({...formData, data_projetada: e.target.value})}
-                  className="glass-input w-full p-4 rounded-2xl bg-white/50 text-slate-600"
-                />
-              </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 flex items-center gap-1">
+                                <Calendar size={12} /> Vencimento (1ª Parcela)
+                            </label>
+                            <input 
+                                type="date"
+                                required
+                                value={formData.data_projetada}
+                                onChange={(e) => setFormData({...formData, data_projetada: e.target.value})}
+                                className="glass-input w-full p-4 rounded-2xl bg-white/50 text-slate-700 font-semibold"
+                            />
+                        </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Fornecedor</label>
-                <input 
-                  type="text"
-                  value={formData.fornecedor}
-                  onChange={(e) => setFormData({...formData, fornecedor: e.target.value})}
-                  className="glass-input w-full p-4 rounded-2xl bg-white/50"
-                  placeholder="Nome do fornecedor"
-                />
-              </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 flex items-center gap-1">
+                                <AlignLeft size={12} /> Detalhes Opcionais
+                            </label>
+                            <textarea 
+                                value={formData.desc}
+                                onChange={(e) => setFormData({...formData, desc: e.target.value})}
+                                className="glass-input w-full p-4 rounded-2xl h-24 resize-none bg-white/50 text-sm"
+                                placeholder="Observações sobre a despesa..."
+                            ></textarea>
+                        </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                 
-                 <div className="space-y-1 col-span-2 md:col-span-1">
-                   {!editingId && (
-                       <button 
-                         type="button"
-                         onClick={() => setIsSplitMode(!isSplitMode)}
-                         className={`w-full mb-2 py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all font-bold text-xs uppercase tracking-wide shadow-sm
-                            ${isSplitMode 
-                                ? 'bg-[#04a7bd] text-white shadow-cyan-200' 
-                                : 'bg-white border-2 border-cyan-50 text-[#04a7bd] hover:bg-cyan-50'}`}
-                       >
-                         {isSplitMode ? <Check size={16} /> : <Split size={16} />}
-                         {isSplitMode ? 'Divisão Ativada' : 'Dividir Despesa'}
-                       </button>
-                   )}
-
-                   {isSplitMode ? (
-                      <div className="glass-panel p-4 rounded-2xl border border-cyan-100 bg-cyan-50/30 w-[200%] md:w-[200%] relative z-10 -ml-[0%] md:-ml-[0%]">
-                          
-                          <div className="mb-4">
-                              <div className="flex justify-between items-center mb-1">
-                                  <span className="text-[10px] font-bold uppercase tracking-wide text-[#04a7bd]">Total Distribuído</span>
-                                  <span className={`text-sm font-bold ${totalSplitPercent > 100 ? 'text-red-500' : (totalSplitPercent === 100 ? 'text-green-600' : 'text-[#04a7bd]')}`}>
-                                      {totalSplitPercent.toFixed(0)}%
-                                  </span>
-                              </div>
-                              <div className="h-2 w-full bg-white rounded-full overflow-hidden shadow-inner">
-                                  <div 
-                                    className={`h-full transition-all duration-300 ${totalSplitPercent > 100 ? 'bg-red-500' : (totalSplitPercent === 100 ? 'bg-green-500' : 'bg-[#04a7bd]')}`}
-                                    style={{ width: `${Math.min(totalSplitPercent, 100)}%` }}
-                                  ></div>
-                              </div>
-                              {totalSplitPercent > 100 && (
-                                  <div className="flex items-center gap-1 mt-2 text-xs font-bold text-red-500 animate-pulse bg-red-100 px-2 py-1 rounded-lg w-fit">
-                                      <AlertTriangle size={12} />
-                                      Total excede 100%
-                                  </div>
-                              )}
-                          </div>
-
-                          <div className="space-y-4">
-                             {CATEGORIES_LIST.map(cat => {
-                                 const val = formData.valor ? parseFloat(formData.valor) : 0;
-                                 const perc = parseFloat(splitPercentages[cat] || '0');
-                                 const calcVal = (val * (perc / 100)).toFixed(2);
-
-                                 return (
-                                     <div key={cat} className="flex items-center gap-4 bg-white/60 p-2 rounded-xl">
-                                         <span className="text-xs font-bold text-slate-600 w-24 truncate uppercase tracking-tight">{cat}</span>
-                                         <div className="relative flex-1">
-                                             <input 
-                                                type="number" 
-                                                min="0"
-                                                max="100"
-                                                placeholder="0"
-                                                value={splitPercentages[cat] || ''}
-                                                onChange={(e) => updateSplitPercentage(cat, e.target.value)}
-                                                className={`w-full bg-slate-50 border-2 rounded-xl h-14 text-center text-2xl font-bold text-slate-900 focus:outline-none transition-all placeholder-slate-300
-                                                    ${totalSplitPercent > 100 && perc > 0 ? 'border-red-300 focus:border-red-400 bg-red-50' : 'border-cyan-100 focus:border-cyan-400 focus:ring-4 focus:ring-cyan-100'}
-                                                    [&::-webkit-inner-spin-button]:appearance-none
-                                                `}
-                                             />
-                                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">%</span>
-                                         </div>
-                                         <div className="w-24 text-right">
-                                             <span className="block text-[10px] text-slate-400 uppercase font-bold">Valor</span>
-                                             <span className="text-sm font-bold text-slate-800">R$ {perc > 0 ? calcVal : '0.00'}</span>
-                                         </div>
-                                     </div>
-                                 );
-                             })}
-                          </div>
-                      </div>
-                   ) : (
-                       <div className="relative mt-1">
-                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 mb-1 block">Categoria</label>
-                          <select 
-                            className="glass-input w-full p-4 rounded-2xl appearance-none bg-white/50"
-                            value={formData.categoria}
-                            onChange={(e) => setFormData({...formData, categoria: e.target.value})}
-                          >
-                            <option value="" className="text-slate-400">Selecione...</option>
-                            <option value="Segurança">Segurança</option>
-                            <option value="Investimento">Investimento</option>
-                            <option value="Medicina">Medicina</option>
-                            <option value="Operacional">Operacional</option>
-                          </select>
-                          <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 mt-3">
-                            <ChevronDown size={14} />
-                          </div>
-                       </div>
-                   )}
-                 </div>
-
-                 <div className="space-y-1 col-span-2 md:col-span-1">
-                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Pagamento</label>
-                   <div className="relative mt-1">
-                      <select 
-                        className="glass-input w-full p-4 rounded-2xl appearance-none bg-white/50"
-                        value={formData.forma_pagamento}
-                        onChange={(e) => setFormData({...formData, forma_pagamento: e.target.value})}
-                      >
-                        <option value="" className="text-slate-400">Selecione...</option>
-                        <option value="Pix">Pix</option>
-                        <option value="Boleto">Boleto</option>
-                        <option value="Cartão de Crédito">Cartão de Crédito</option>
-                        <option value="Cartão de Débito">Cartão de Débito</option>
-                        <option value="Dinheiro">Dinheiro</option>
-                        <option value="Transferência">Transferência</option>
-                      </select>
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                        <ChevronDown size={14} />
-                      </div>
-                   </div>
-                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 items-center">
-                 <div className="space-y-1">
-                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Centro de Custos</label>
-                   <div className="relative">
-                      <select 
-                        className="glass-input w-full p-4 rounded-2xl appearance-none bg-white/50"
-                        value={formData.centro_custos}
-                        onChange={(e) => setFormData({...formData, centro_custos: e.target.value})}
-                      >
-                        <option value="" className="text-slate-400">Selecione...</option>
-                        <option value="Fixo">Fixo</option>
-                        <option value="Variavel">Variável</option>
-                      </select>
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                        <ChevronDown size={14} />
-                      </div>
-                   </div>
-                 </div>
-
-                 <div className="flex items-center gap-3 bg-white/40 p-3 rounded-2xl border border-white/50 mt-5">
-                    <div className="relative inline-block w-10 h-6 align-middle select-none transition duration-200 ease-in">
-                        <input 
-                            type="checkbox" 
-                            name="toggle" 
-                            id="toggle-recorrente" 
-                            className="toggle-checkbox absolute block w-4 h-4 rounded-full bg-white border-4 appearance-none cursor-pointer"
-                            checked={formData.recorrente}
-                            onChange={(e) => setFormData({...formData, recorrente: e.target.checked})}
-                            style={{
-                                right: formData.recorrente ? '2px' : 'auto',
-                                left: formData.recorrente ? 'auto' : '2px',
-                                top: '4px',
-                                borderColor: 'transparent',
-                                transition: 'all 0.3s'
-                            }}
-                        />
-                        <label 
-                            htmlFor="toggle-recorrente" 
-                            className={`toggle-label block overflow-hidden h-6 rounded-full cursor-pointer transition-colors ${formData.recorrente ? 'bg-purple-500' : 'bg-slate-300'}`}
-                        ></label>
                     </div>
-                    <label htmlFor="toggle-recorrente" className="text-sm font-semibold text-slate-700 cursor-pointer select-none">
-                        Recorrente Mensal
-                    </label>
-                 </div>
-              </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2">Descrição</label>
-                <textarea 
-                  value={formData.desc}
-                  onChange={(e) => setFormData({...formData, desc: e.target.value})}
-                  className="glass-input w-full p-4 rounded-2xl h-20 resize-none bg-white/50"
-                  placeholder="Detalhes opcionais..."
-                ></textarea>
-              </div>
+                    {/* RIGHT COLUMN: CONFIG & CLASSIFICATION */}
+                    <div className="lg:col-span-5 bg-slate-50/50 p-8 space-y-8 flex flex-col">
+                        
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 flex items-center gap-1">
+                                <Briefcase size={12} /> Fornecedor
+                            </label>
+                            <input 
+                                type="text"
+                                value={formData.fornecedor}
+                                onChange={(e) => setFormData({...formData, fornecedor: e.target.value})}
+                                className="glass-input w-full p-4 rounded-2xl bg-white shadow-sm"
+                                placeholder="Nome do fornecedor"
+                            />
+                        </div>
 
-              <button 
-                type="submit"
-                disabled={submitting || (isSplitMode && Math.abs(totalSplitPercent - 100) > 0.1)}
-                className={`w-full py-4 rounded-2xl font-bold transition-all shadow-xl active:scale-[0.98] mt-2
-                    ${(isSplitMode && Math.abs(totalSplitPercent - 100) > 0.1) 
-                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
-                        : 'bg-[#050a30] text-white hover:bg-[#030720] shadow-[#050a30]/20'}
-                `}
-              >
-                {submitting ? 'Salvando...' : (editingId ? 'Atualizar Despesa' : 'Adicionar Despesa')}
-              </button>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 flex items-center gap-1">
+                                <CreditCard size={12} /> Forma de Pagamento
+                            </label>
+                            <div className="relative">
+                                <select 
+                                    className="glass-input w-full p-4 rounded-2xl appearance-none bg-white shadow-sm font-medium text-slate-700"
+                                    value={formData.forma_pagamento}
+                                    onChange={(e) => setFormData({...formData, forma_pagamento: e.target.value})}
+                                >
+                                    <option value="" className="text-slate-400">Selecione...</option>
+                                    <option value="Pix">Pix</option>
+                                    <option value="Boleto">Boleto</option>
+                                    <option value="Cartão de Crédito">Cartão de Crédito</option>
+                                    <option value="Cartão de Débito">Cartão de Débito</option>
+                                    <option value="Dinheiro">Dinheiro</option>
+                                    <option value="Transferência">Transferência</option>
+                                </select>
+                                <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
+                            </div>
+                        </div>
 
+                        {/* CONFIGURAÇÃO DE META / GERENCIA */}
+                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                            <div className="text-xs font-bold text-[#04a7bd] uppercase mb-2 flex items-center gap-2 pb-2 border-b border-slate-100">
+                                <Building2 size={14} /> Classificação Gerencial
+                            </div>
+
+                            <div className="mb-4">
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsSplitMode(!isSplitMode)}
+                                    className={`w-full py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all font-bold text-xs uppercase tracking-wide border
+                                        ${isSplitMode 
+                                            ? 'bg-[#04a7bd] text-white border-[#04a7bd] shadow-md' 
+                                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}
+                                >
+                                    {isSplitMode ? <Check size={16} /> : <Split size={16} />}
+                                    {isSplitMode ? 'Divisão por Gerência Ativa' : 'Dividir por Gerência'}
+                                </button>
+                            </div>
+
+                            {!isSplitMode ? (
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Gerência</label>
+                                        <div className="relative">
+                                            <select 
+                                                className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold appearance-none focus:outline-none focus:border-[#04a7bd]"
+                                                value={formData.gerencia_id}
+                                                onChange={(e) => setFormData({...formData, gerencia_id: e.target.value})}
+                                            >
+                                                <option value="" className="text-slate-400">Selecione...</option>
+                                                {gerenciasList.map(g => (
+                                                    <option key={g.id} value={g.id}>{g.descricao}</option>
+                                                ))}
+                                            </select>
+                                            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Setor</label>
+                                        <div className="relative">
+                                            <select 
+                                                className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold appearance-none focus:outline-none focus:border-[#04a7bd]"
+                                                value={formData.categoria}
+                                                onChange={(e) => setFormData({...formData, categoria: e.target.value})}
+                                            >
+                                                <option value="" className="text-slate-400">Selecione...</option>
+                                                <option value="Segurança">Segurança</option>
+                                                <option value="Investimento">Investimento</option>
+                                                <option value="Medicina">Medicina</option>
+                                                <option value="Operacional">Operacional</option>
+                                            </select>
+                                            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Distribuição</span>
+                                        <span className={`text-xs font-bold ${totalSplitPercent > 100 ? 'text-red-500' : (totalSplitPercent === 100 ? 'text-green-600' : 'text-[#04a7bd]')}`}>
+                                            Total: {totalSplitPercent.toFixed(0)}%
+                                        </span>
+                                    </div>
+                                    
+                                    <div className="max-h-48 overflow-y-auto custom-scrollbar pr-2 space-y-2">
+                                        {gerenciasList.map(gerencia => (
+                                            <div key={gerencia.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
+                                                <span className="text-xs font-semibold text-slate-600 truncate max-w-[120px]" title={gerencia.descricao}>{gerencia.descricao}</span>
+                                                <div className="relative w-20">
+                                                    <input 
+                                                        type="number" 
+                                                        min="0" max="100"
+                                                        placeholder="0"
+                                                        value={splitPercentages[gerencia.id.toString()] || ''}
+                                                        onChange={(e) => updateSplitPercentage(gerencia.id.toString(), e.target.value)}
+                                                        className="w-full bg-white border border-slate-200 rounded-lg py-1 pl-2 pr-6 text-xs font-bold text-center focus:outline-none focus:border-[#04a7bd]"
+                                                    />
+                                                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">%</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {/* Setor is simpler in split mode, usually shared */}
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Setor (Geral)</label>
+                                        <div className="relative">
+                                            <select 
+                                                className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold appearance-none focus:outline-none focus:border-[#04a7bd]"
+                                                value={formData.categoria}
+                                                onChange={(e) => setFormData({...formData, categoria: e.target.value})}
+                                            >
+                                                <option value="" className="text-slate-400">Selecione...</option>
+                                                <option value="Segurança">Segurança</option>
+                                                <option value="Investimento">Investimento</option>
+                                                <option value="Medicina">Medicina</option>
+                                                <option value="Operacional">Operacional</option>
+                                            </select>
+                                            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Categoria Financeira (Meta) */}
+                            <div className="pt-2 border-t border-slate-100">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Categoria Financeira</label>
+                                <div className="relative">
+                                    <select 
+                                        className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold appearance-none focus:outline-none focus:border-[#04a7bd]"
+                                        value={formData.nova_categoria}
+                                        onChange={(e) => setFormData({...formData, nova_categoria: e.target.value})}
+                                    >
+                                        <option value="" className="text-slate-400">Selecione...</option>
+                                        <option value="Investimento">Investimento</option>
+                                        <option value="Custo fixo">Custo fixo</option>
+                                        <option value="Custo variavel">Custo variavel</option>
+                                        <option value="Despesa fixa">Despesa fixa</option>
+                                        <option value="Despesa variavel">Despesa variavel</option>
+                                    </select>
+                                    <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Old Cost Center & Recurring */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Centro Custos (Antigo)</label>
+                                <div className="relative">
+                                    <select 
+                                        className="w-full p-3 rounded-xl bg-white border border-slate-200 text-sm font-semibold appearance-none shadow-sm focus:outline-none focus:border-[#04a7bd]"
+                                        value={formData.centro_custos}
+                                        onChange={(e) => setFormData({...formData, centro_custos: e.target.value})}
+                                    >
+                                        <option value="" className="text-slate-400">Selecione...</option>
+                                        <option value="Fixo">Fixo</option>
+                                        <option value="Variavel">Variável</option>
+                                    </select>
+                                    <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
+                                </div>
+                            </div>
+                            
+                            <div className="flex items-center justify-center bg-purple-50 rounded-xl border border-purple-100 p-2 cursor-pointer" onClick={() => setFormData({...formData, recorrente: !formData.recorrente})}>
+                                <div className="flex items-center gap-2 select-none">
+                                    <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${formData.recorrente ? 'bg-purple-600 border-purple-600' : 'bg-white border-purple-300'}`}>
+                                        {formData.recorrente && <Check size={14} className="text-white" />}
+                                    </div>
+                                    <span className={`text-xs font-bold uppercase ${formData.recorrente ? 'text-purple-700' : 'text-purple-400'}`}>Recorrente Mensal</span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
             </form>
+
+            {/* Footer Actions */}
+            <div className="px-8 py-5 border-t border-slate-100 bg-white flex justify-end gap-3">
+                <button 
+                    onClick={() => setIsModalOpen(false)}
+                    className="px-6 py-3 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors"
+                >
+                    Cancelar
+                </button>
+                <button 
+                    type="submit"
+                    form="expenseForm"
+                    disabled={submitting || (isSplitMode && Math.abs(totalSplitPercent - 100) > 0.1)}
+                    className={`px-8 py-3 rounded-xl font-bold text-white transition-all shadow-lg flex items-center gap-2
+                        ${(isSplitMode && Math.abs(totalSplitPercent - 100) > 0.1) 
+                            ? 'bg-slate-300 cursor-not-allowed shadow-none' 
+                            : 'bg-[#050a30] hover:bg-[#030720] shadow-[#050a30]/20'}
+                    `}
+                >
+                    {submitting ? 'Salvando...' : (
+                        <>
+                            <Check size={18} />
+                            {editingId ? 'Atualizar Despesa' : 'Adicionar Despesa'}
+                        </>
+                    )}
+                </button>
+            </div>
+
           </div>
         </div>
       )}
