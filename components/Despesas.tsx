@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { FinanceiroDespesa } from '../types';
 import { 
   Plus, Trash2, Calendar, TrendingDown, Layers, CheckCircle, 
-  X, Check, Search, Filter, ChevronLeft, ChevronRight, ChevronDown, Tag, CreditCard, Briefcase, RefreshCw, Edit, LayoutGrid, List, UserCog, Users, DollarSign, ArrowRight, Percent, Split, AlertTriangle, Building2, FileText, AlignLeft
+  X, Check, Search, Filter, ChevronLeft, ChevronRight, ChevronDown, Tag, CreditCard, Briefcase, RefreshCw, Edit, LayoutGrid, List, UserCog, Users, DollarSign, ArrowRight, Percent, Split, AlertTriangle, Building2, FileText, AlignLeft, Wallet, UserCheck
 } from 'lucide-react';
 
 interface ProviderGroup {
@@ -12,6 +12,16 @@ interface ProviderGroup {
   count: number;
   ids: number[];
   firstValue: number; 
+}
+
+interface PaymentGroup {
+  fornecedor: string;
+  total: number;
+  count: number;
+  ids: number[];
+  pendingIds: number[];
+  status: 'Pago' | 'Pendente' | 'Parcial';
+  data_projetada: string;
 }
 
 interface Gerencia {
@@ -27,6 +37,9 @@ const Despesas: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  // New State for Collaborator Payment Logic
+  const [isCollaboratorPayment, setIsCollaboratorPayment] = useState(false);
 
   const [isSplitMode, setIsSplitMode] = useState(false);
   // splitPercentages keys will now be the gerencia ID (as string)
@@ -221,12 +234,42 @@ const Despesas: React.FC = () => {
     });
   }, [despesas, monthFilter, searchTerm, statusFilter]);
 
-  const { specialProviderCards, regularDespesas } = useMemo(() => {
+  const { specialProviderCards, paymentGroupCards, regularDespesas } = useMemo(() => {
     const specialMap: Record<string, ProviderGroup> = {};
+    const paymentMap: Record<string, PaymentGroup> = {};
     const regular: FinanceiroDespesa[] = [];
 
     filteredDespesas.forEach(d => {
-      if (d.desc === "Atendimento por prestador") {
+      // 1. Check for "PAGAMENTO" Grouping (Case Insensitive to catch all)
+      if (d.nome && d.nome.toUpperCase() === "PAGAMENTO") {
+          const providerKey = d.fornecedor || 'Desconhecido';
+          
+          if (!paymentMap[providerKey]) {
+              paymentMap[providerKey] = {
+                  fornecedor: providerKey,
+                  total: 0,
+                  count: 0,
+                  ids: [],
+                  pendingIds: [],
+                  status: 'Pago', 
+                  data_projetada: d.data_projetada || ''
+              };
+          }
+
+          paymentMap[providerKey].total += (d.valor || 0);
+          paymentMap[providerKey].count += 1;
+          paymentMap[providerKey].ids.push(d.id);
+          
+          if (d.status?.toLowerCase() !== 'pago') {
+              paymentMap[providerKey].status = 'Pendente';
+              paymentMap[providerKey].pendingIds.push(d.id);
+          } else if (paymentMap[providerKey].status === 'Pendente') {
+              // Keeps as Pendente if any previous was pending
+          }
+
+      } 
+      // 2. Check for "Atendimento por prestador" Grouping
+      else if (d.desc === "Atendimento por prestador") {
         const providerName = d.fornecedor || 'Prestador Desconhecido';
         
         if (!specialMap[providerName]) {
@@ -242,13 +285,16 @@ const Despesas: React.FC = () => {
         specialMap[providerName].total += (d.valor || 0);
         specialMap[providerName].count += 1;
         specialMap[providerName].ids.push(d.id);
-      } else {
+      } 
+      // 3. Regular
+      else {
         regular.push(d);
       }
     });
 
     return {
       specialProviderCards: Object.values(specialMap) as ProviderGroup[],
+      paymentGroupCards: Object.values(paymentMap) as PaymentGroup[],
       regularDespesas: regular
     };
   }, [filteredDespesas]);
@@ -276,6 +322,7 @@ const Despesas: React.FC = () => {
   const handleOpenNew = () => {
     setEditingId(null);
     setIsSplitMode(false);
+    setIsCollaboratorPayment(false); // Reset checkbox
     setSplitPercentages({});
     setFormData({
         nome: '',
@@ -301,6 +348,10 @@ const Despesas: React.FC = () => {
     setIsSplitMode(false); 
     setSplitPercentages({});
     
+    // Check if it's a "PAGAMENTO"
+    const isPayment = despesa.nome === 'PAGAMENTO';
+    setIsCollaboratorPayment(isPayment);
+
     // Attempt to resolve Gerencia ID from centro_custos name
     const matchedGerencia = gerenciasList.find(g => g.descricao === despesa.centro_custos);
     const gId = matchedGerencia ? matchedGerencia.id.toString() : '';
@@ -310,7 +361,7 @@ const Despesas: React.FC = () => {
         desc: despesa.desc || '',
         fornecedor: despesa.fornecedor || '',
         categoria: despesa.categoria || '',
-        nova_categoria: '', // Requires user to re-select if they want to update meta/logic
+        nova_categoria: '', 
         gerencia_id: gId, 
         forma_pagamento: despesa.forma_pagamento || '',
         centro_custos: despesa.centro_custos || '',
@@ -324,6 +375,19 @@ const Despesas: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const toggleCollaboratorPayment = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const isChecked = e.target.checked;
+    setIsCollaboratorPayment(isChecked);
+    if (isChecked) {
+      setFormData(prev => ({ ...prev, nome: 'PAGAMENTO' }));
+    } else {
+      // Only clear if it was exactly PAGAMENTO, otherwise leave user's custom text
+      if (formData.nome === 'PAGAMENTO') {
+          setFormData(prev => ({ ...prev, nome: '' }));
+      }
+    }
+  };
+
   const handleDelete = async (id: number) => {
     if (!confirm('Tem certeza que deseja excluir esta despesa?')) return;
     try {
@@ -333,6 +397,18 @@ const Despesas: React.FC = () => {
     } catch (error: any) {
       console.error('Error deleting:', error);
       alert('Erro ao excluir despesa.');
+    }
+  };
+
+  const handleBatchDelete = async (ids: number[]) => {
+    if (!confirm(`Tem certeza que deseja excluir ${ids.length} lançamentos deste pagamento?`)) return;
+    try {
+      const { error } = await supabase.from('financeiro_despesas').delete().in('id', ids);
+      if (error) throw error;
+      setDespesas(prev => prev.filter(d => !ids.includes(d.id)));
+    } catch (error: any) {
+      console.error('Error deleting batch:', error);
+      alert('Erro ao excluir despesas em lote.');
     }
   };
 
@@ -353,6 +429,25 @@ const Despesas: React.FC = () => {
     } catch (error: any) {
       console.error('Error updating status:', error);
       alert('Erro ao atualizar status.');
+    }
+  };
+
+  const handleBatchMarkAsPaid = async (ids: number[]) => {
+    if (ids.length === 0) return;
+    try {
+        const { error } = await supabase
+            .from('financeiro_despesas')
+            .update({ status: 'Pago' })
+            .in('id', ids);
+        
+        if (error) throw error;
+
+        setDespesas(prev => prev.map(d => 
+            ids.includes(d.id) ? { ...d, status: 'Pago' } : d
+        ));
+    } catch (error: any) {
+        console.error('Error updating batch status:', error);
+        alert('Erro ao atualizar status em lote.');
     }
   };
 
@@ -558,9 +653,6 @@ const Despesas: React.FC = () => {
 
          if (error) throw error;
 
-         // Note: We don't retroactively update gerencia_meta on simple edit as it requires complex reconciliation.
-         // If user wants to update meta, they should use the split functionality or delete and recreate.
-
       } else {
         // Insert Mode OR Edit-with-Split Mode
         if (editingId && isSplitMode) {
@@ -601,9 +693,6 @@ const Despesas: React.FC = () => {
                  if (g) singleGerenciaName = g.descricao;
              }
              
-             // We pass undefined for overrides so it uses formData normally, but we ensure centro_custos is set correctly
-             // Actually generatePayloads uses formData.centro_custos if no override.
-             // Let's override it to be safe if gerencia_id is selected.
              payloads.push(...generatePayloads(totalValue, formData.categoria, undefined, singleGerenciaName));
         }
 
@@ -845,6 +934,86 @@ const Despesas: React.FC = () => {
         {viewMode === 'cards' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
           
+          {/* SPECIAL PAYMENT GROUP CARDS (NEW) */}
+          {paymentGroupCards.map((group, idx) => (
+             <div 
+                key={`pg-${idx}`} 
+                className="glass-panel p-6 rounded-[24px] relative group hover:bg-indigo-50/50 transition-all hover:translate-y-[-4px] duration-300 border border-indigo-200 border-opacity-50 overflow-hidden shadow-sm shadow-indigo-100/50"
+             >
+                 <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-100/50 rounded-bl-full -mr-4 -mt-4 z-0"></div>
+                 
+                 <div className="relative z-10">
+                     <div className="flex items-center gap-3 mb-4">
+                        <div className="w-10 h-10 rounded-2xl bg-indigo-100 flex items-center justify-center shadow-sm text-indigo-600 shrink-0">
+                           <Wallet size={20} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                           <div className="flex items-center justify-between">
+                             <h3 className="font-bold text-slate-800 leading-tight truncate" title={group.fornecedor}>
+                                {group.fornecedor}
+                             </h3>
+                           </div>
+                           <p className="text-xs text-indigo-600 font-bold uppercase tracking-wider">Pagamento Agrupado</p>
+                        </div>
+                     </div>
+
+                     <div className="mb-6">
+                        <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Total do Pagamento</p>
+                        <p className="text-3xl font-bold text-slate-800 tracking-tight">
+                           {formatCurrency(group.total)}
+                        </p>
+                     </div>
+
+                     <div className="grid grid-cols-2 gap-3 mb-6">
+                        <div className="bg-white/40 p-3 rounded-2xl border border-indigo-100/50">
+                            <div className="flex items-center gap-1.5 text-slate-400 mb-1">
+                                <Layers size={12} />
+                                <span className="text-xs font-bold uppercase">Itens</span>
+                            </div>
+                            <p className="text-sm font-bold text-slate-700">{group.count} lançamentos</p>
+                        </div>
+                        <div className="bg-white/40 p-3 rounded-2xl border border-indigo-100/50">
+                            <div className="flex items-center gap-1.5 text-slate-400 mb-1">
+                                <Calendar size={12} />
+                                <span className="text-xs font-bold uppercase">Data</span>
+                            </div>
+                            <p className="text-sm font-bold text-slate-700 truncate">{formatDate(group.data_projetada)}</p>
+                        </div>
+                     </div>
+
+                     <div className="flex items-center justify-between pt-2">
+                        <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${group.status === 'Pago' ? 'bg-teal-50 text-[#149890] border-teal-200' : 'bg-indigo-50 text-indigo-600 border-indigo-200'}`}>
+                            {group.status}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            {group.status !== 'Pago' && (
+                                <button 
+                                    onClick={() => handleBatchMarkAsPaid(group.pendingIds)}
+                                    className="group h-10 bg-[#149890] hover:bg-teal-700 text-white rounded-full flex items-center transition-all duration-300 shadow-lg shadow-[#149890]/30 overflow-hidden w-10 hover:w-[160px]"
+                                    title="Confirmar Todos"
+                                >
+                                    <div className="w-10 h-10 flex items-center justify-center shrink-0">
+                                        <Check size={18} strokeWidth={3} />
+                                    </div>
+                                    <span className="opacity-0 group-hover:opacity-100 whitespace-nowrap text-xs font-bold pr-4 transition-opacity duration-300 delay-75">
+                                        Confirmar Todos
+                                    </span>
+                                </button>
+                            )}
+                            <button 
+                                onClick={() => handleBatchDelete(group.ids)}
+                                className="w-10 h-10 rounded-full bg-white text-slate-400 flex items-center justify-center hover:text-red-500 hover:bg-red-50 transition-all shadow-sm border border-slate-100"
+                                title="Excluir Todos"
+                            >
+                                <Trash2 size={16} />
+                            </button>
+                        </div>
+                     </div>
+                 </div>
+             </div>
+          ))}
+
           {specialProviderCards.map((card, idx) => (
              <div 
                 key={`sp-${idx}`} 
@@ -1156,6 +1325,22 @@ const Despesas: React.FC = () => {
                             </div>
                         </div>
 
+                        {/* NEW: Payment to Collaborator Toggle */}
+                        <div className="flex items-center gap-2 mb-2 bg-indigo-50 p-3 rounded-xl border border-indigo-100 cursor-pointer" onClick={() => {
+                            const newValue = !isCollaboratorPayment;
+                            setIsCollaboratorPayment(newValue);
+                            if (newValue) {
+                                setFormData(prev => ({ ...prev, nome: 'PAGAMENTO' }));
+                            } else {
+                                if (formData.nome === 'PAGAMENTO') setFormData(prev => ({ ...prev, nome: '' }));
+                            }
+                        }}>
+                            <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${isCollaboratorPayment ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-indigo-200'}`}>
+                                {isCollaboratorPayment && <Check size={14} className="text-white" />}
+                            </div>
+                            <span className="text-sm font-bold text-indigo-900 select-none">Pagamento para Colaborador (Travar Título)</span>
+                        </div>
+
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 flex items-center gap-1">
                                 <FileText size={12} /> Título / Descrição Curta
@@ -1165,7 +1350,8 @@ const Despesas: React.FC = () => {
                                 required
                                 value={formData.nome}
                                 onChange={(e) => setFormData({...formData, nome: e.target.value})}
-                                className="glass-input w-full p-4 rounded-2xl font-bold text-lg bg-white/50"
+                                readOnly={isCollaboratorPayment}
+                                className={`glass-input w-full p-4 rounded-2xl font-bold text-lg ${isCollaboratorPayment ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200' : 'bg-white/50'}`}
                                 placeholder="Ex: Compra de Equipamentos"
                             />
                         </div>
