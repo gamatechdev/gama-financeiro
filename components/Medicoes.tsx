@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { Cliente, FinanceiroReceita } from '../types';
 import { 
   Building2, Search, ChevronRight, ArrowLeft, Calendar, 
-  CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit, Stethoscope, CloudUpload, FileText, Tag, Save, DollarSign, Upload, RefreshCw, Grid, List, Trash2, Calculator, Info
+  CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit, Stethoscope, CloudUpload, FileText, Tag, Save, DollarSign, Upload, RefreshCw, Grid, List, Trash2, Calculator, Info, FileSpreadsheet
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -143,6 +143,20 @@ const Medicoes: React.FC = () => {
     }
   }, [selectedMonth]);
 
+  const handleMonthChange = (step: number) => {
+    if (!selectedMonth) return;
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const date = new Date(year, month - 1 + step, 1);
+    const newStr = date.toISOString().slice(0, 7);
+    setSelectedMonth(newStr);
+  };
+
+  const selectMonthFromCalendar = (monthIndex: number) => {
+    const newMonth = new Date(calendarYear, monthIndex, 1);
+    setSelectedMonth(newMonth.toISOString().slice(0, 7));
+    setShowCalendar(false);
+  };
+
   // Sync Local Input State when Client Changes
   useEffect(() => {
     if (selectedCliente) {
@@ -224,6 +238,31 @@ const Medicoes: React.FC = () => {
   // Helper for normalization
   const normalizeStr = (str: string) => {
       return str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  };
+
+  const formatCurrency = (val: number | null) => {
+    if (val === null || val === undefined) return 'R$ 0,00';
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+  };
+
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return '—';
+    const cleanDate = dateStr.split('T')[0];
+    const parts = cleanDate.split('-');
+    if (parts.length === 3) {
+      const [year, month, day] = parts;
+      return `${day}/${month}/${year}`;
+    }
+    return dateStr;
+  };
+
+  const formatMonth = (isoMonth: string) => {
+    if (!isoMonth) return '';
+    const [year, month] = isoMonth.split('-');
+    const date = new Date(parseInt(year), parseInt(month) - 1, 15);
+    const monthName = date.toLocaleString('pt-BR', { month: 'long' });
+    const yearNum = date.getFullYear();
+    return `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} ${yearNum}`;
   };
 
   // --- PRICE MANAGEMENT LOGIC ---
@@ -476,6 +515,47 @@ const Medicoes: React.FC = () => {
               fileInputRef.current.value = '';
           }
       }
+  };
+
+  const handleDownloadExcel = () => {
+      if (!selectedCliente) return;
+
+      // Flatten data for Excel
+      const rows = clienteReceitas.map(receita => {
+          let examDetails = '';
+          if (receita.exames_snapshot && Array.isArray(receita.exames_snapshot)) {
+              examDetails = receita.exames_snapshot
+                  .map((item: any) => typeof item === 'string' ? item : item.name)
+                  .join(', ');
+          }
+
+          return {
+              "Data": formatDate(receita.data_projetada),
+              "Descrição": receita.descricao,
+              "Unidade": receita.unidades?.nome_unidade || '—',
+              "Exames": examDetails,
+              "Valor (R$)": receita.valor_total
+          };
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      
+      // Auto-width columns (rough approximation)
+      const wscols = [
+          { wch: 12 }, // Data
+          { wch: 30 }, // Descricao
+          { wch: 20 }, // Unidade
+          { wch: 40 }, // Exames
+          { wch: 15 }  // Valor
+      ];
+      worksheet['!cols'] = wscols;
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Relatório");
+      
+      // Clean filename
+      const safeName = (selectedCliente.nome_fantasia || 'Cliente').replace(/[^a-z0-9]/gi, '_');
+      XLSX.writeFile(workbook, `Medicao_${safeName}.xlsx`);
   };
 
   const handleSavePrices = async () => {
@@ -944,44 +1024,6 @@ const Medicoes: React.FC = () => {
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const formatCurrency = (val: number | null) => {
-    if (val === null || val === undefined) return 'R$ 0,00';
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
-  };
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '—';
-    const cleanDate = dateStr.split('T')[0];
-    const parts = cleanDate.split('-');
-    if (parts.length === 3) {
-      const [year, month, day] = parts;
-      return `${day}/${month}/${year}`;
-    }
-    return dateStr;
-  };
-
-  const formatMonth = (isoMonth: string) => {
-    if (!isoMonth) return '';
-    const [year, month] = isoMonth.split('-');
-    const date = new Date(parseInt(year), parseInt(month) - 1, 15);
-    const monthName = date.toLocaleString('pt-BR', { month: 'long' });
-    const yearNum = date.getFullYear();
-    return `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} ${yearNum}`;
-  };
-
-  const handleMonthChange = (step: number) => {
-    const [year, month] = selectedMonth.split('-').map(Number);
-    const date = new Date(year, month - 1 + step, 1);
-    const newStr = date.toISOString().slice(0, 7);
-    setSelectedMonth(newStr);
-  };
-
-  const selectMonthFromCalendar = (monthIndex: number) => {
-    const newMonth = new Date(calendarYear, monthIndex, 1);
-    setSelectedMonth(newMonth.toISOString().slice(0, 7));
-    setShowCalendar(false);
   };
 
   const monthNames = [
@@ -1755,7 +1797,7 @@ const Medicoes: React.FC = () => {
                                         <span>Cálculo Automático</span>
                                     </div>
                                     <div className="text-xs font-bold bg-white/10 px-2 py-1 rounded text-white">
-                                        {formData.qnt_parcela > 1 ? `${formData.qnt_parcela}x Parcelas` : 'À Vista'}
+                                        {parseInt(formData.qnt_parcela) > 1 ? `${formData.qnt_parcela}x Parcelas` : 'À Vista'}
                                     </div>
                                 </div>
                             </div>
@@ -2017,10 +2059,10 @@ const Medicoes: React.FC = () => {
                <div className="absolute inset-0 bg-slate-800/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl pointer-events-none"></div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex gap-3 mb-3">
                <button 
                 onClick={() => setIsShareModalOpen(false)}
-                className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-colors"
+                className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-colors border border-slate-100"
                >
                  Fechar
                </button>
@@ -2032,6 +2074,14 @@ const Medicoes: React.FC = () => {
                  Copiar Link
                </button>
             </div>
+            
+            <button 
+                onClick={handleDownloadExcel}
+                className="w-full py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors shadow-lg flex items-center justify-center gap-2"
+            >
+                <FileSpreadsheet size={18} />
+                Baixar Planilha de Medição
+            </button>
           </div>
         </div>
       )}

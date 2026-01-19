@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { 
   Wallet, TrendingUp, TrendingDown, ArrowUpCircle, ArrowDownCircle, 
   AlertTriangle, Calendar, PieChart as PieIcon, DollarSign, CheckCircle, BarChart3, X,
-  ChevronLeft, ChevronRight, Shield, Stethoscope, Briefcase, Activity
+  ChevronLeft, ChevronRight, Shield, Stethoscope, Briefcase, Activity, Target, AlertOctagon, Percent, Calculator, Eye, AlertCircle
 } from 'lucide-react';
 import { 
   ResponsiveContainer, Tooltip as RechartsTooltip,
@@ -28,6 +28,20 @@ interface ExpenseToday {
   nome: string;
   valor: number;
   fornecedor: string | null;
+}
+
+interface GerenciaMetaEdit {
+  id: number;
+  descricao: string;
+  porcentagem: number | null;
+}
+
+interface MetaViewData {
+  gerencia: string;
+  porcentagemDefinida: number;
+  metaValor: number;     // Valor alvo calculado (Meta Global * %)
+  realizadoValor: number; // Valor faturado real
+  progresso: number;     // % atingida
 }
 
 const Dashboard: React.FC = () => {
@@ -61,6 +75,26 @@ const Dashboard: React.FC = () => {
   // Modal States
   const [showAttentionModal, setShowAttentionModal] = useState(false);
   const [showDefaultsModal, setShowDefaultsModal] = useState(false);
+  const [showMetaModal, setShowMetaModal] = useState(false); // New Meta Modal
+  const [showOverwriteConfirmation, setShowOverwriteConfirmation] = useState(false); // Confirmation for Meta
+  
+  // View Meta Modal States
+  const [showViewMetaModal, setShowViewMetaModal] = useState(false);
+  const [metaViewData, setMetaViewData] = useState<MetaViewData[]>([]);
+  const [currentMetaDetails, setCurrentMetaDetails] = useState<{receita: number, despesa: number} | null>(null);
+
+  // Meta Check State for Button
+  const [hasCurrentMeta, setHasCurrentMeta] = useState(false);
+  
+  // Meta Form State
+  const [metaForm, setMetaForm] = useState({
+    meta_receita: '',
+    meta_despesa: '',
+    mes_meta: new Date().toISOString().slice(0, 7) // YYYY-MM default used internally
+  });
+  const [gerenciasMetaList, setGerenciasMetaList] = useState<GerenciaMetaEdit[]>([]); // New state for managing percentages
+  const [savingMeta, setSavingMeta] = useState(false);
+  const [existingMetaId, setExistingMetaId] = useState<number | null>(null);
   
   // Detail Modal State
   const [selectedBarData, setSelectedBarData] = useState<ChartData | null>(null);
@@ -100,6 +134,239 @@ const Dashboard: React.FC = () => {
     const newStr = date.toISOString().slice(0, 7);
     setCostMonth(newStr);
   };
+
+  // --- META LOGIC START ---
+
+  // Check if meta exists for current month on mount
+  useEffect(() => {
+    const checkMetaStatus = async () => {
+        try {
+            const currentMonthStr = new Date().toISOString().slice(0, 7) + '-01';
+            const { data, error } = await supabase
+                .from('gama_meta')
+                .select('id')
+                .eq('mes_meta', currentMonthStr)
+                .maybeSingle();
+            
+            if (!error && data) {
+                setHasCurrentMeta(true);
+            } else {
+                setHasCurrentMeta(false);
+            }
+        } catch (err) {
+            console.error("Error checking meta status:", err);
+        }
+    };
+    checkMetaStatus();
+  }, [showMetaModal]); // Re-check when modal closes/updates
+
+  // Calculate total percentage used
+  const totalPorcentagem = useMemo(() => {
+    return gerenciasMetaList.reduce((acc, curr) => acc + (curr.porcentagem || 0), 0);
+  }, [gerenciasMetaList]);
+
+  const fetchGerenciasForModal = async () => {
+      try {
+          const { data, error } = await supabase
+            .from('gerencias')
+            .select('id, descricao, porcentagem')
+            .order('descricao');
+          
+          if (error) throw error;
+          setGerenciasMetaList(data || []);
+      } catch (err) {
+          console.error("Error fetching gerencias for meta:", err);
+      }
+  };
+
+  const handleGerenciaPercentageChange = (id: number, value: string) => {
+      setGerenciasMetaList(prev => prev.map(g => {
+          if (g.id === id) {
+              // Allow empty string for better typing experience, convert to 0 for logic if needed later
+              const numVal = value === '' ? null : parseFloat(value);
+              return { ...g, porcentagem: numVal };
+          }
+          return g;
+      }));
+  };
+
+  const handleOpenMetaModal = () => {
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      setMetaForm({
+          meta_receita: '',
+          meta_despesa: '',
+          mes_meta: currentMonth
+      });
+      setShowOverwriteConfirmation(false);
+      setExistingMetaId(null);
+      fetchGerenciasForModal();
+      setShowMetaModal(true);
+  };
+
+  const handleOpenViewMeta = async () => {
+      setLoading(true);
+      try {
+          const currentMonthStr = new Date().toISOString().slice(0, 7) + '-01';
+          const [year, month] = currentMonthStr.split('-').map(Number);
+          
+          // 1. Fetch Global Meta
+          const { data: metaData, error: metaError } = await supabase
+              .from('gama_meta')
+              .select('*')
+              .eq('mes_meta', currentMonthStr)
+              .maybeSingle();
+
+          if (metaError || !metaData) throw new Error("Meta não encontrada.");
+          
+          setCurrentMetaDetails({
+              receita: metaData.meta_receita || 0,
+              despesa: metaData.meta_despesa || 0
+          });
+
+          // 2. Fetch Gerencias (Definitions)
+          const { data: gerenciasData, error: gerenciasError } = await supabase
+              .from('gerencias')
+              .select('id, descricao, porcentagem');
+          if (gerenciasError) throw gerenciasError;
+
+          // 3. Fetch Actuals (Gerencia Meta - Realizado) for this month
+          // Assuming 'faturamento' in gerencia_meta holds the realized revenue
+          const startOfMonth = new Date(year, month - 1, 1).toISOString();
+          const endOfMonth = new Date(year, month, 0, 23, 59, 59).toISOString();
+
+          const { data: actualsData, error: actualsError } = await supabase
+              .from('gerencia_meta')
+              .select('gerencia, faturamento')
+              .gte('created_at', startOfMonth)
+              .lte('created_at', endOfMonth);
+          
+          if (actualsError) throw actualsError;
+
+          // 4. Calculate View Data
+          const processedViewData: MetaViewData[] = gerenciasData.map(g => {
+              const porcentagem = g.porcentagem || 0;
+              const metaValor = (metaData.meta_receita || 0) * (porcentagem / 100);
+              
+              // Sum realized revenue for this gerencia
+              const realized = (actualsData || [])
+                  .filter(a => a.gerencia === g.id)
+                  .reduce((sum, item) => sum + (item.faturamento || 0), 0);
+              
+              const progresso = metaValor > 0 ? (realized / metaValor) * 100 : 0;
+
+              return {
+                  gerencia: g.descricao,
+                  porcentagemDefinida: porcentagem,
+                  metaValor: metaValor,
+                  realizadoValor: realized,
+                  progresso: progresso
+              };
+          });
+
+          setMetaViewData(processedViewData);
+          setShowViewMetaModal(true);
+
+      } catch (err) {
+          console.error("Error opening view meta:", err);
+          alert("Não foi possível carregar os detalhes da meta.");
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  // Handle Meta Check Logic
+  const handleCheckMeta = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (totalPorcentagem > 100) {
+        alert("A soma das porcentagens não pode exceder 100%.");
+        return;
+    }
+
+    setSavingMeta(true);
+
+    try {
+        const dateStr = `${metaForm.mes_meta}-01`; // Convert 'YYYY-MM' to 'YYYY-MM-01' for Date type
+
+        // Check if meta exists for this month
+        const { data: existing, error: fetchError } = await supabase
+            .from('gama_meta')
+            .select('id')
+            .eq('mes_meta', dateStr)
+            .maybeSingle();
+
+        if (fetchError) throw fetchError;
+
+        if (existing) {
+            setExistingMetaId(existing.id);
+            setShowOverwriteConfirmation(true);
+            setSavingMeta(false); // Stop saving spinner, wait for confirmation
+        } else {
+            // No conflict, save directly
+            await executeSaveMeta(null);
+        }
+
+    } catch (err) {
+        console.error("Erro ao verificar meta:", err);
+        alert("Erro ao verificar meta existente.");
+        setSavingMeta(false);
+    }
+  };
+
+  // Final Execute Save (Insert or Update)
+  const executeSaveMeta = async (idToUpdate: number | null) => {
+      setSavingMeta(true);
+      try {
+        const receitaVal = parseFloat(metaForm.meta_receita) || 0;
+        const despesaVal = parseFloat(metaForm.meta_despesa) || 0;
+        const dateStr = `${metaForm.mes_meta}-01`;
+
+        const payload = {
+            meta_receita: receitaVal,
+            meta_despesa: despesaVal,
+            mes_meta: dateStr 
+        };
+
+        // 1. Save global Meta (Gama Meta)
+        let error;
+        if (idToUpdate) {
+            // Update
+            const res = await supabase.from('gama_meta').update(payload).eq('id', idToUpdate);
+            error = res.error;
+        } else {
+            // Insert
+            const res = await supabase.from('gama_meta').insert(payload);
+            error = res.error;
+        }
+
+        if (error) throw error;
+
+        // 2. Save Gerencia Percentages
+        // We iterate and update each row in 'gerencias'
+        const updates = gerenciasMetaList.map(g => 
+            supabase
+                .from('gerencias')
+                .update({ porcentagem: g.porcentagem })
+                .eq('id', g.id)
+        );
+
+        await Promise.all(updates);
+
+        alert("Meta e porcentagens definidas com sucesso!");
+        setShowMetaModal(false);
+        setShowOverwriteConfirmation(false);
+        setExistingMetaId(null);
+        setHasCurrentMeta(true); // Update UI state
+
+      } catch (err) {
+          console.error("Erro ao salvar meta:", err);
+          alert("Erro ao salvar a meta.");
+      } finally {
+          setSavingMeta(false);
+      }
+  };
+
+  // --- META LOGIC END ---
 
   // Fetch específico para o gráfico de Distribuição de Custos
   useEffect(() => {
@@ -384,14 +651,35 @@ const Dashboard: React.FC = () => {
           <div className={`absolute bottom-0 right-0 w-32 h-32 rounded-full blur-3xl transition-colors duration-500 ${saldo >= 0 ? 'bg-teal-400/20' : 'bg-orange-400/20'}`}></div>
 
           <div className="relative z-10">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-[#050a30] text-white flex items-center justify-center shadow-lg shadow-[#050a30]/20">
-                <Wallet size={24} />
-              </div>
-              <div>
-                 <p className="text-sm font-bold text-slate-400 uppercase tracking-wide">Saldo Atual</p>
-                 <p className="text-xs text-slate-500">{company}</p>
-              </div>
+            <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-[#050a30] text-white flex items-center justify-center shadow-lg shadow-[#050a30]/20">
+                    <Wallet size={24} />
+                  </div>
+                  <div>
+                     <p className="text-sm font-bold text-slate-400 uppercase tracking-wide">Saldo Atual</p>
+                     <p className="text-xs text-slate-500">{company}</p>
+                  </div>
+                </div>
+                
+                {/* BUTTON: DEFINIR META vs VISUALIZAR META */}
+                {!hasCurrentMeta ? (
+                    <button 
+                        onClick={handleOpenMetaModal}
+                        className="bg-red-50 hover:bg-red-100 text-red-500 text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all shadow-sm border border-red-100 animate-pulse"
+                    >
+                        <AlertCircle size={14} />
+                        Definir Meta
+                    </button>
+                ) : (
+                    <button 
+                        onClick={handleOpenViewMeta}
+                        className="bg-white/50 hover:bg-white text-[#050a30] text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all shadow-sm border border-white/60 hover:shadow-md"
+                    >
+                        <Eye size={14} />
+                        Visualizar Meta
+                    </button>
+                )}
             </div>
 
             <div className="space-y-1">
@@ -579,6 +867,283 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* --- MODALS --- */}
+
+      {/* VIEW META MODAL (Redesigned - Wider) */}
+      {showViewMetaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-md" onClick={() => setShowViewMetaModal(false)}></div>
+          
+          <div className="glass-panel w-full max-w-6xl rounded-[32px] relative z-10 p-0 overflow-hidden shadow-2xl border border-white/60 animate-[scaleIn_0.2s_ease-out] flex flex-col max-h-[90vh]">
+             <div className="px-8 py-6 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-indigo-100 text-indigo-600 rounded-xl">
+                        <Activity size={24} />
+                    </div>
+                    <div>
+                        <h3 className="text-xl font-bold text-slate-800">Progresso da Meta</h3>
+                        <p className="text-xs text-slate-500">Acompanhamento mensal por gerência</p>
+                    </div>
+                </div>
+                <button onClick={() => setShowViewMetaModal(false)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors">
+                    <X size={20} />
+                </button>
+             </div>
+
+             <div className="flex-1 overflow-y-auto custom-scrollbar p-8 bg-slate-50/30">
+                {/* Summary Header */}
+                <div className="grid grid-cols-2 gap-4 mb-8">
+                    <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-center items-center text-center">
+                        <p className="text-xs font-bold text-slate-400 uppercase mb-2">Meta Global Receita</p>
+                        <p className="text-3xl font-bold text-slate-700">{formatCurrency(currentMetaDetails?.receita || 0)}</p>
+                    </div>
+                    <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-center items-center text-center">
+                        <p className="text-xs font-bold text-slate-400 uppercase mb-2">Meta Global Despesa</p>
+                        <p className="text-3xl font-bold text-red-500">{formatCurrency(currentMetaDetails?.despesa || 0)}</p>
+                    </div>
+                </div>
+
+                <h4 className="text-sm font-bold text-slate-600 uppercase tracking-wide mb-4">Detalhamento por Gerência</h4>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {metaViewData.map((item, idx) => (
+                        <div key={idx} className="bg-white p-6 rounded-[24px] border border-slate-200 shadow-sm flex flex-col justify-between">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <h5 className="font-bold text-slate-800 text-lg">{item.gerencia}</h5>
+                                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-full uppercase tracking-wider mt-1 inline-block">
+                                        Meta: {item.porcentagemDefinida}%
+                                    </span>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Alvo</p>
+                                    <p className="text-sm font-bold text-[#04a7bd]">{formatCurrency(item.metaValor)}</p>
+                                </div>
+                            </div>
+
+                            <div className="mt-auto">
+                                <div className="flex justify-between text-xs font-bold mb-2">
+                                    <span className="text-slate-500">Realizado: {formatCurrency(item.realizadoValor)}</span>
+                                    <span className={`${item.progresso >= 100 ? 'text-green-500' : 'text-[#04a7bd]'}`}>
+                                        {item.progresso.toFixed(1)}%
+                                    </span>
+                                </div>
+                                <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden">
+                                    <div 
+                                        style={{ width: `${Math.min(item.progresso, 100)}%` }} 
+                                        className={`h-full rounded-full transition-all duration-700 ease-out ${item.progresso >= 100 ? 'bg-green-500' : 'bg-[#04a7bd]'}`}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                    {metaViewData.length === 0 && (
+                        <p className="col-span-full text-center text-slate-400 text-sm py-4">Nenhuma gerência configurada.</p>
+                    )}
+                </div>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* META MODAL (Redesigned - Wider) */}
+      {showMetaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-md" onClick={() => setShowMetaModal(false)}></div>
+          
+          <div className="glass-panel w-full max-w-5xl rounded-[32px] relative z-10 p-0 overflow-hidden shadow-2xl border border-white/60 animate-[scaleIn_0.2s_ease-out] flex flex-col max-h-[95vh]">
+             <div className="flex justify-between items-center px-8 py-6 border-b border-slate-100 bg-white/50 backdrop-blur-sm">
+                <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-cyan-100 text-[#04a7bd] rounded-xl">
+                        <Target size={24} />
+                    </div>
+                    <div>
+                        <h3 className="text-xl font-bold text-slate-800">
+                            Definir Meta - {new Date().toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}
+                        </h3>
+                        <p className="text-xs text-slate-500">Distribuição de resultados</p>
+                    </div>
+                </div>
+                <button onClick={() => setShowMetaModal(false)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors">
+                    <X size={20} />
+                </button>
+             </div>
+
+             <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+                <form id="metaForm" onSubmit={handleCheckMeta} className="space-y-8">
+                    
+                    {/* Primary Inputs Row */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="glass-panel p-5 rounded-[24px] border-l-4 border-l-[#04a7bd] shadow-sm bg-white/60">
+                            <label className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1 mb-2">
+                                <DollarSign size={12} /> Meta de Receita
+                            </label>
+                            <div className="relative">
+                                <span className="absolute left-0 top-1/2 -translate-y-1/2 text-lg font-bold text-slate-400">R$</span>
+                                <input 
+                                    type="number"
+                                    step="0.01"
+                                    required
+                                    value={metaForm.meta_receita}
+                                    onChange={(e) => setMetaForm({...metaForm, meta_receita: e.target.value})}
+                                    className="w-full bg-transparent pl-8 text-2xl font-bold text-slate-700 outline-none placeholder:text-slate-200"
+                                    placeholder="0.00"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="glass-panel p-5 rounded-[24px] border-l-4 border-l-red-400 shadow-sm bg-white/60">
+                            <label className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1 mb-2">
+                                <DollarSign size={12} /> Meta de Custo
+                            </label>
+                            <div className="relative">
+                                <span className="absolute left-0 top-1/2 -translate-y-1/2 text-lg font-bold text-slate-400">R$</span>
+                                <input 
+                                    type="number"
+                                    step="0.01"
+                                    required
+                                    value={metaForm.meta_despesa}
+                                    onChange={(e) => setMetaForm({...metaForm, meta_despesa: e.target.value})}
+                                    className="w-full bg-transparent pl-8 text-2xl font-bold text-slate-700 outline-none placeholder:text-slate-200"
+                                    placeholder="0.00"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="glass-panel p-5 rounded-[24px] bg-slate-50 border border-slate-100 flex flex-col justify-center">
+                             <div className="flex justify-between w-full text-xs font-bold uppercase tracking-wide mb-2">
+                                <span className="text-slate-500">Alocação Total</span>
+                                <span className={`${totalPorcentagem > 100 ? 'text-red-500' : 'text-[#04a7bd]'}`}>
+                                    {totalPorcentagem.toFixed(1)}% / 100%
+                                </span>
+                            </div>
+                            <div className="h-4 w-full bg-slate-200 rounded-full overflow-hidden">
+                                <div 
+                                    style={{ width: `${Math.min(totalPorcentagem, 100)}%` }} 
+                                    className={`h-full transition-all duration-500 rounded-full ${totalPorcentagem > 100 ? 'bg-red-500' : (totalPorcentagem === 100 ? 'bg-green-500' : 'bg-[#04a7bd]')}`}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Distribution Section - Grid Layout */}
+                    <div className="bg-slate-50 p-6 rounded-[32px] border border-slate-100">
+                        <div className="flex items-center gap-2 mb-6">
+                            <Percent size={18} className="text-[#04a7bd]" />
+                            <h4 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Distribuição de Lucro por Gerência</h4>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                            {gerenciasMetaList.map(gerencia => {
+                                const calculatedValue = (parseFloat(metaForm.meta_receita || '0') * (gerencia.porcentagem || 0)) / 100;
+                                
+                                return (
+                                    <div key={gerencia.id} className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm hover:border-[#04a7bd]/30 transition-all group">
+                                        <div className="flex items-center gap-3 mb-3">
+                                            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500 text-xs font-bold shrink-0 group-hover:bg-cyan-50 group-hover:text-[#04a7bd] transition-colors">
+                                                {gerencia.descricao.substring(0, 2).toUpperCase()}
+                                            </div>
+                                            <span className="text-sm font-bold text-slate-700 truncate" title={gerencia.descricao}>
+                                                {gerencia.descricao}
+                                            </span>
+                                        </div>
+                                        
+                                        <div className="flex items-center justify-between mt-2">
+                                            <div className="relative w-24">
+                                                <input 
+                                                    type="number"
+                                                    step="0.1"
+                                                    min="0"
+                                                    max="100"
+                                                    placeholder="0"
+                                                    value={gerencia.porcentagem ?? ''}
+                                                    onChange={(e) => handleGerenciaPercentageChange(gerencia.id, e.target.value)}
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-3 pr-8 text-sm font-bold text-right focus:outline-none focus:border-[#04a7bd] transition-colors"
+                                                />
+                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-bold">%</span>
+                                            </div>
+                                            
+                                            <div className="text-right">
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase">Valor</p>
+                                                <span className="text-sm font-bold text-[#04a7bd] block">
+                                                    {formatCurrency(calculatedValue)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            {gerenciasMetaList.length === 0 && (
+                                <div className="text-center py-8 text-slate-400 flex flex-col items-center col-span-full">
+                                    <AlertOctagon size={24} className="mb-2 opacity-50" />
+                                    <p className="text-xs">Nenhuma gerência cadastrada.</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* OVERWRITE WARNING */}
+                    {showOverwriteConfirmation && (
+                        <div className="bg-red-50 border border-red-100 p-4 rounded-2xl animate-[scaleIn_0.1s_ease-out]">
+                            <div className="flex items-start gap-3 mb-2">
+                                <AlertOctagon size={24} className="text-red-500 shrink-0" />
+                                <div>
+                                    <h4 className="text-sm font-bold text-red-700">Meta Existente!</h4>
+                                    <p className="text-xs text-red-600 mt-1 leading-snug">
+                                        Já existe uma meta cadastrada para este mês. Deseja sobrescrever os valores e as porcentagens?
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex gap-2 mt-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowOverwriteConfirmation(false)}
+                                    className="flex-1 py-3 text-xs font-bold text-red-500 bg-white border border-red-100 rounded-xl hover:bg-red-50"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => executeSaveMeta(existingMetaId)}
+                                    className="flex-1 py-3 text-xs font-bold text-white bg-red-500 rounded-xl hover:bg-red-600 shadow-md"
+                                >
+                                    Sobrescrever Tudo
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </form>
+             </div>
+
+             {!showOverwriteConfirmation && (
+                <div className="px-8 py-5 border-t border-slate-100 bg-white flex justify-end gap-3 items-center">
+                    {totalPorcentagem > 100 && (
+                        <span className="text-xs font-bold text-red-500 mr-auto flex items-center gap-1 animate-pulse">
+                            <AlertOctagon size={12} /> Total excede 100%
+                        </span>
+                    )}
+                    <button 
+                        onClick={() => setShowMetaModal(false)}
+                        className="px-6 py-3 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors"
+                    >
+                        Cancelar
+                    </button>
+                    <button 
+                        type="submit"
+                        form="metaForm"
+                        disabled={savingMeta || totalPorcentagem > 100}
+                        className={`px-8 py-3 font-bold rounded-xl transition-all shadow-lg flex items-center gap-2
+                            ${totalPorcentagem > 100 
+                                ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
+                                : 'bg-[#050a30] text-white hover:bg-[#030720] shadow-[#050a30]/20'}
+                        `}
+                    >
+                        {savingMeta ? 'Processando...' : 'Salvar Meta'}
+                    </button>
+                </div>
+             )}
+          </div>
+        </div>
+      )}
 
       {/* DETAIL MODAL (New) */}
       {selectedBarData && (

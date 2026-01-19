@@ -67,7 +67,7 @@ const Receitas: React.FC = () => {
         .order('nome_fantasia', { ascending: true });
       
       if (clientesError) throw clientesError;
-      setClientes(clientesData || []);
+      setClientes(clientesData as unknown as Cliente[] || []);
 
     } catch (error: any) {
       console.error('Error fetching data:', error.message || JSON.stringify(error));

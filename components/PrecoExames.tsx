@@ -93,7 +93,7 @@ const PrecoExames: React.FC = () => {
           .order('nome_fantasia', { ascending: true });
 
         if (error) throw error;
-        setClientes(data || []);
+        setClientes(data as unknown as Cliente[] || []);
       } catch (error) {
         console.error('Error fetching clients:', error);
       }

@@ -182,7 +182,7 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
     if (Array.isArray(cliente.aprovado_por)) {
        return cliente.aprovado_por[0]?.nome || 'Usuário';
     }
-    return cliente.aprovado_por?.nome || 'Usuário';
+    return (cliente.aprovado_por as any)?.nome || 'Usuário';
   };
 
   // --- Helper function to extract JUST the exam name cleanly ---
