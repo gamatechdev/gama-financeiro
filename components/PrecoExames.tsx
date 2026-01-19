@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { Cliente } from '../types';
 import { 
-  Search, Save, Building2, DollarSign, Filter, CheckCircle, AlertCircle, Stethoscope, ChevronDown, X 
+  Search, Save, Building2, Stethoscope, ChevronDown 
 } from 'lucide-react';
 
 const EXAMS_LIST = [
@@ -119,297 +119,215 @@ const PrecoExames: React.FC = () => {
 
         const newMap: Record<string, { price: string, dbId: number | null }> = {};
         
+        // Initialize with default exams
         EXAMS_LIST.forEach(exam => {
             newMap[exam.nome] = { price: '', dbId: null };
         });
 
+        // Fill with fetched data
         if (data) {
             data.forEach((item: any) => {
-                newMap[item.nome] = { 
-                    price: item.preco ? item.preco.toString() : '', 
-                    dbId: item.id 
-                };
+                 // Use normalize key check or direct check
+                 if (newMap[item.nome]) {
+                     newMap[item.nome] = { 
+                        price: item.preco ? item.preco.toString() : '', 
+                        dbId: item.id 
+                     };
+                 }
             });
         }
-
         setPriceMap(newMap);
-
-      } catch (error) {
-        console.error('Error fetching prices:', error);
+      } catch (err) {
+          console.error("Error fetching prices:", err);
       } finally {
-        setLoading(false);
+          setLoading(false);
       }
     };
-
+    
     fetchPrices();
   }, [selectedClienteId]);
 
-  const handlePriceChange = (examName: string, value: string) => {
-    setPriceMap(prev => ({
-      ...prev,
-      [examName]: { ...prev[examName], price: value }
-    }));
-  };
-
   const handleSave = async () => {
-    if (!selectedClienteId) return;
-    setSaving(true);
+     if (!selectedClienteId) return;
+     setSaving(true);
+     try {
+         const updates = [];
+         const inserts = [];
 
-    try {
-      const updates = [];
-      const inserts = [];
+         for (const exam of EXAMS_LIST) {
+             const currentData = priceMap[exam.nome];
+             // Convert string price to number (replace comma with dot if needed)
+             const priceStr = currentData?.price || '0';
+             const numericPrice = parseFloat(priceStr.replace(',', '.')) || 0;
 
-      for (const exam of EXAMS_LIST) {
-        const currentData = priceMap[exam.nome];
-        const numericPrice = currentData.price ? parseFloat(currentData.price.replace(',', '.')) : 0;
+             // If there's a DB ID, it's an update
+             if (currentData?.dbId) {
+                 updates.push({
+                     id: currentData.dbId,
+                     preco: numericPrice
+                 });
+             } else if (numericPrice > 0) {
+                 // Insert only if price > 0
+                 inserts.push({
+                     nome: exam.nome,
+                     empresaId: selectedClienteId, // Using string UUID directly is fine if column type matches
+                     preco: numericPrice
+                 });
+             }
+         }
+         
+         // Execute updates
+         for (const update of updates) {
+             await supabase.from('preco_exames').update({ preco: update.preco }).eq('id', update.id);
+         }
+         
+         // Execute inserts
+         if (inserts.length > 0) {
+             await supabase.from('preco_exames').insert(inserts);
+         }
 
-        if (currentData.dbId) {
-          updates.push({
-            id: currentData.dbId,
-            preco: numericPrice,
-          });
-        } else if (numericPrice > 0) {
-          inserts.push({
-            nome: exam.nome,
-            empresaId: selectedClienteId,
-            preco: numericPrice
-          });
-        }
-      }
+         alert("Preços atualizados com sucesso!");
+         
+         // Refresh
+         const { data } = await supabase.from('preco_exames').select('id, nome, preco').eq('empresaId', selectedClienteId);
+         if(data) {
+             const newMap = {...priceMap};
+             data.forEach((item: any) => {
+                 if(newMap[item.nome]) {
+                     newMap[item.nome].dbId = item.id;
+                     newMap[item.nome].price = item.preco ? item.preco.toString() : '';
+                 }
+             });
+             setPriceMap(newMap);
+         }
 
-      for (const update of updates) {
-        const { error } = await supabase
-          .from('preco_exames')
-          .update({ preco: update.preco })
-          .eq('id', update.id);
-        if (error) throw error;
-      }
-
-      if (inserts.length > 0) {
-        const { error } = await supabase
-          .from('preco_exames')
-          .insert(inserts);
-        if (error) throw error;
-      }
-
-      const { data: refreshedData } = await supabase
-          .from('preco_exames')
-          .select('id, nome, preco')
-          .eq('empresaId', selectedClienteId);
-      
-      if (refreshedData) {
-          setPriceMap(prev => {
-              const updated = { ...prev };
-              refreshedData.forEach((item: any) => {
-                  updated[item.nome] = { 
-                      price: item.preco ? item.preco.toString() : '', 
-                      dbId: item.id 
-                  };
-              });
-              return updated;
-          });
-      }
-
-      alert('Tabela de preços salva com sucesso!');
-
-    } catch (error) {
-      console.error('Error saving prices:', error);
-      alert('Erro ao salvar preços.');
-    } finally {
-      setSaving(false);
-    }
+     } catch (err) {
+         console.error("Error saving:", err);
+         alert("Erro ao salvar preços.");
+     } finally {
+         setSaving(false);
+     }
   };
 
-  const filteredClients = useMemo(() => {
-    return clientes.filter(c => 
-        (c.nome_fantasia || '').toLowerCase().includes(companySearch.toLowerCase()) ||
-        (c.razao_social || '').toLowerCase().includes(companySearch.toLowerCase())
-    );
-  }, [clientes, companySearch]);
-
-  const handleSelectClient = (client: Cliente) => {
-      setSelectedClienteId(client.id);
-      setCompanySearch(client.nome_fantasia || client.razao_social);
-      setShowCompanyDropdown(false);
-  };
-
-  const handleClearClient = () => {
-      setSelectedClienteId('');
-      setCompanySearch('');
-      setPriceMap({}); 
+  const handlePriceChange = (examName: string, val: string) => {
+      setPriceMap(prev => ({
+          ...prev,
+          [examName]: { ...prev[examName], price: val }
+      }));
   };
 
   const filteredExams = useMemo(() => {
-    return EXAMS_LIST.filter(exam => 
-      exam.nome.toLowerCase().includes(searchExam.toLowerCase())
-    );
+     return EXAMS_LIST.filter(e => e.nome.toLowerCase().includes(searchExam.toLowerCase()));
   }, [searchExam]);
 
+  const selectedClientName = clientes.find(c => c.id === selectedClienteId)?.nome_fantasia || 'Selecione...';
+
   return (
-    <div className="p-6 relative min-h-full space-y-6">
-      
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight text-[#050a30]">Tabela de Preços</h2>
-          <p className="text-slate-500 mt-1">Defina os valores dos exames por empresa</p>
-        </div>
+    <div className="p-6">
+        <h2 className="text-2xl font-bold text-[#050a30] mb-6">Tabela de Preços por Empresa</h2>
         
-        {selectedClienteId && (
-            <button 
-                onClick={handleSave}
-                disabled={saving}
-                className="bg-[#149890] hover:bg-teal-700 text-white px-6 py-3 rounded-full font-bold shadow-lg shadow-[#149890]/20 transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+        {/* Client Selector */}
+        <div className="mb-6 relative" ref={dropdownRef}>
+            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Empresa</label>
+            <div 
+                className="bg-white border border-slate-200 rounded-xl p-3 flex justify-between items-center cursor-pointer hover:border-[#04a7bd]"
+                onClick={() => setShowCompanyDropdown(!showCompanyDropdown)}
             >
-                {saving ? <div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div> : <Save size={20} />}
-                {saving ? 'Salvando...' : 'Salvar Alterações'}
-            </button>
-        )}
-      </div>
-
-      <div className="glass-panel p-6 rounded-[28px] border border-white/60">
-         <div className="flex flex-col md:flex-row gap-4 items-start md:items-center relative z-20">
-            <div className="w-full md:w-1/2" ref={dropdownRef}>
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 mb-1 block">Selecione a Empresa</label>
-                <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                        <Building2 size={20} />
-                    </div>
-                    <input 
-                        type="text"
-                        placeholder="Pesquisar empresa..."
-                        value={companySearch}
-                        onChange={(e) => {
-                            setCompanySearch(e.target.value);
-                            setShowCompanyDropdown(true);
-                            if (selectedClienteId) {
-                                setSelectedClienteId(''); 
-                                setPriceMap({});
-                            }
-                        }}
-                        onFocus={() => setShowCompanyDropdown(true)}
-                        className="glass-input w-full p-4 pl-12 pr-10 rounded-2xl bg-white/50 text-slate-700 font-semibold focus:bg-white transition-all"
-                    />
-                    
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 cursor-pointer">
-                        {companySearch ? (
-                            <X size={16} onClick={handleClearClient} className="hover:text-red-500 transition-colors" />
-                        ) : (
-                            <ChevronDown size={16} />
-                        )}
-                    </div>
-
-                    {showCompanyDropdown && (
-                        <div className="absolute top-full left-0 w-full mt-2 bg-white/90 backdrop-blur-xl border border-white/50 rounded-2xl shadow-xl max-h-60 overflow-y-auto z-50 animate-[scaleIn_0.15s_ease-out]">
-                            {filteredClients.length > 0 ? (
-                                filteredClients.map(client => (
-                                    <button
-                                        key={client.id}
-                                        onClick={() => handleSelectClient(client)}
-                                        className="w-full text-left px-4 py-3 hover:bg-cyan-50 transition-colors border-b border-slate-100 last:border-0 flex flex-col"
-                                    >
-                                        <span className="font-bold text-slate-700 text-sm">
-                                            {client.nome_fantasia || 'Sem Nome Fantasia'}
-                                        </span>
-                                        <span className="text-xs text-slate-400">
-                                            {client.razao_social}
-                                        </span>
-                                    </button>
-                                ))
-                            ) : (
-                                <div className="p-4 text-center text-slate-400 text-sm">
-                                    Nenhuma empresa encontrada.
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
+                <span className={selectedClienteId ? "text-slate-800 font-bold" : "text-slate-400"}>
+                    {selectedClientName}
+                </span>
+                <ChevronDown size={16} className="text-slate-400" />
             </div>
-
-            {selectedClienteId && (
-                <div className="w-full md:w-1/2 animate-[fadeIn_0.3s_ease-out]">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-2 mb-1 block">Filtrar Exame</label>
-                    <div className="relative">
-                        <input 
-                            type="text"
-                            placeholder="Buscar exame..."
-                            value={searchExam}
-                            onChange={(e) => setSearchExam(e.target.value)}
-                            className="glass-input w-full p-4 pl-12 rounded-2xl bg-white/50 focus:bg-white"
-                        />
-                        <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                            <Search size={20} />
+            
+            {showCompanyDropdown && (
+                <div className="absolute top-full left-0 w-full mt-2 bg-white rounded-xl shadow-xl border border-slate-100 z-50 max-h-60 overflow-y-auto p-2">
+                    <input 
+                        type="text" 
+                        placeholder="Buscar empresa..."
+                        className="w-full p-2 mb-2 bg-slate-50 rounded-lg text-sm focus:outline-none"
+                        value={companySearch}
+                        onChange={(e) => setCompanySearch(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                    {clientes.filter(c => (c.nome_fantasia || c.razao_social || '').toLowerCase().includes(companySearch.toLowerCase())).map(c => (
+                        <div 
+                            key={c.id} 
+                            className="p-2 hover:bg-slate-50 rounded-lg cursor-pointer text-sm font-medium text-slate-700"
+                            onClick={() => {
+                                setSelectedClienteId(c.id);
+                                setShowCompanyDropdown(false);
+                            }}
+                        >
+                            {c.nome_fantasia || c.razao_social}
                         </div>
-                    </div>
+                    ))}
                 </div>
             )}
-         </div>
-      </div>
+        </div>
 
-      {loading && (
-          <div className="flex justify-center py-20">
-             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#04a7bd]"></div>
-          </div>
-      )}
+        {selectedClienteId && (
+            <>
+                <div className="flex justify-between items-center mb-4 gap-4">
+                    <div className="relative flex-1">
+                        <input 
+                            type="text" 
+                            placeholder="Buscar exame..." 
+                            value={searchExam}
+                            onChange={(e) => setSearchExam(e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-[#04a7bd]"
+                        />
+                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    </div>
+                    <button 
+                        onClick={handleSave}
+                        disabled={saving}
+                        className="bg-[#04a7bd] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#038fa3] transition-colors shadow-lg shadow-cyan-500/20 flex items-center gap-2"
+                    >
+                        <Save size={18} />
+                        {saving ? 'Salvando...' : 'Salvar Alterações'}
+                    </button>
+                </div>
 
-      {!loading && selectedClienteId && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-20">
-              {filteredExams.map((exam, idx) => {
-                  const currentPrice = priceMap[exam.nome]?.price || '';
-                  const hasDbRecord = !!priceMap[exam.nome]?.dbId;
-
-                  return (
-                      <div 
-                        key={idx} 
-                        className={`
-                            glass-panel p-4 rounded-2xl flex items-center justify-between gap-4 transition-all duration-200 border
-                            ${currentPrice && parseFloat(currentPrice) > 0 ? 'bg-cyan-50/50 border-cyan-100 shadow-sm' : 'border-transparent hover:bg-white/60'}
-                        `}
-                      >
-                          <div className="flex items-center gap-3 min-w-0">
-                              <div className={`
-                                  w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-slate-500
-                                  ${hasDbRecord ? 'bg-teal-50 text-[#149890]' : 'bg-slate-100'}
-                              `}>
-                                  <Stethoscope size={16} />
-                              </div>
-                              <span className="text-sm font-semibold text-slate-700 truncate" title={exam.nome}>
-                                  {exam.nome}
-                              </span>
-                          </div>
-
-                          <div className="relative w-28 shrink-0">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-bold">R$</span>
-                              <input 
-                                  type="number" 
-                                  step="0.01"
-                                  placeholder="0.00"
-                                  value={currentPrice}
-                                  onChange={(e) => handlePriceChange(exam.nome, e.target.value)}
-                                  className={`
-                                      w-full border rounded-xl py-2 pl-8 pr-2 text-right font-bold text-sm focus:outline-none focus:ring-2 focus:ring-[#04a7bd]/20 transition-all
-                                      ${currentPrice ? 'bg-white border-cyan-200 text-slate-800' : 'bg-slate-50 border-transparent text-slate-400'}
-                                  `}
-                              />
-                          </div>
-                      </div>
-                  );
-              })}
-              
-              {filteredExams.length === 0 && (
-                  <div className="col-span-full py-10 text-center text-slate-400">
-                      Nenhum exame encontrado com este nome.
-                  </div>
-              )}
-          </div>
-      )}
-
-      {!loading && !selectedClienteId && (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-400 opacity-60">
-              <Building2 size={48} className="mb-4 text-slate-300" />
-              <p>Selecione uma empresa acima para gerenciar os preços.</p>
-          </div>
-      )}
-
+                {loading ? (
+                    <div className="py-10 text-center text-slate-400">Carregando preços...</div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {filteredExams.map((exam) => {
+                            const val = priceMap[exam.nome]?.price || '';
+                            const hasDb = !!priceMap[exam.nome]?.dbId;
+                            return (
+                                <div key={exam.id} className={`p-4 rounded-xl border flex items-center justify-between ${val ? 'bg-cyan-50/30 border-cyan-100' : 'bg-white border-slate-100'}`}>
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${hasDb ? 'bg-teal-50 text-teal-600' : 'bg-slate-100 text-slate-400'}`}>
+                                            <Stethoscope size={14} />
+                                        </div>
+                                        <span className="text-sm font-bold text-slate-700 max-w-[150px] truncate" title={exam.nome}>{exam.nome}</span>
+                                    </div>
+                                    <div className="relative w-24">
+                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">R$</span>
+                                        <input 
+                                            type="number" 
+                                            step="0.01"
+                                            value={val}
+                                            onChange={(e) => handlePriceChange(exam.nome, e.target.value)}
+                                            className="w-full pl-6 pr-2 py-1.5 rounded-lg border border-slate-200 text-right text-sm font-bold focus:border-[#04a7bd] outline-none"
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </>
+        )}
+        
+        {!selectedClienteId && (
+            <div className="py-20 text-center text-slate-400 bg-white rounded-3xl border border-dashed border-slate-200">
+                <Building2 size={48} className="mx-auto mb-4 opacity-20" />
+                <p>Selecione uma empresa acima para gerenciar a tabela de preços.</p>
+            </div>
+        )}
     </div>
   );
 };

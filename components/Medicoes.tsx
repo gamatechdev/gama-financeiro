@@ -5,7 +5,9 @@ import {
   Building2, Search, ChevronRight, ArrowLeft, Calendar, 
   CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit, Stethoscope, CloudUpload, FileText, Tag, Save, DollarSign, Upload, RefreshCw, Grid, List, Trash2, Calculator, Info, FileSpreadsheet
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import * as XLSXPkg from 'xlsx';
+
+const XLSX = (XLSXPkg as any).default || XLSXPkg;
 
 // Shared list of exams (same as PrecoExames)
 const EXAMS_LIST = [
@@ -520,40 +522,114 @@ const Medicoes: React.FC = () => {
   const handleDownloadExcel = () => {
       if (!selectedCliente) return;
 
-      // Flatten data for Excel
-      const rows = clienteReceitas.map(receita => {
-          let examDetails = '';
+      // 1. Coletar todos os nomes de exames únicos presentes nos dados filtrados
+      const allExamsSet = new Set<string>();
+      
+      clienteReceitas.forEach(receita => {
           if (receita.exames_snapshot && Array.isArray(receita.exames_snapshot)) {
-              examDetails = receita.exames_snapshot
-                  .map((item: any) => typeof item === 'string' ? item : item.name)
-                  .join(', ');
+              receita.exames_snapshot.forEach((item: any) => {
+                  let name = '';
+                  if (typeof item === 'string') {
+                      // Handle potential JSON string
+                      if (item.trim().startsWith('{')) {
+                          try { const p = JSON.parse(item); name = p.name || p.nome || ''; } catch { name = item; }
+                      } else { name = item; }
+                  } else {
+                      name = item.name || item.nome || '';
+                  }
+                  if (name) allExamsSet.add(name);
+              });
+          }
+      });
+
+      const sortedExams = Array.from(allExamsSet).sort();
+
+      // 2. Construir as linhas
+      const rows = clienteReceitas.map(receita => {
+          // Identificar exames desta receita específica
+          const currentRevenueExams = new Set<string>();
+          if (receita.exames_snapshot && Array.isArray(receita.exames_snapshot)) {
+              receita.exames_snapshot.forEach((item: any) => {
+                  let name = '';
+                  if (typeof item === 'string') {
+                      if (item.trim().startsWith('{')) {
+                          try { const p = JSON.parse(item); name = p.name || p.nome || ''; } catch { name = item; }
+                      } else { name = item; }
+                  } else {
+                      name = item.name || item.nome || '';
+                  }
+                  if (name) currentRevenueExams.add(name);
+              });
           }
 
-          return {
+          const rowData: any = {
               "Data": formatDate(receita.data_projetada),
-              "Descrição": receita.descricao,
+              "Colaborador / Descrição": receita.descricao,
               "Unidade": receita.unidades?.nome_unidade || '—',
-              "Exames": examDetails,
-              "Valor (R$)": receita.valor_total
+              "eSocial": (receita.valor_esoc && receita.valor_esoc > 0) ? 'X' : ''
           };
+
+          // Adicionar colunas dinâmicas de exames
+          sortedExams.forEach(examName => {
+              rowData[examName] = currentRevenueExams.has(examName) ? 'X' : '';
+          });
+
+          rowData["Valor (R$)"] = receita.valor_total;
+
+          return rowData;
       });
 
       const worksheet = XLSX.utils.json_to_sheet(rows);
       
-      // Auto-width columns (rough approximation)
+      // Ajuste de largura de colunas
       const wscols = [
           { wch: 12 }, // Data
-          { wch: 30 }, // Descricao
+          { wch: 35 }, // Descricao
           { wch: 20 }, // Unidade
-          { wch: 40 }, // Exames
+          { wch: 8 },  // eSocial
+          ...sortedExams.map(() => ({ wch: 15 })), // Exames dinâmicos
           { wch: 15 }  // Valor
       ];
       worksheet['!cols'] = wscols;
 
+      // STYLING LOGIC (Requires xlsx-js-style)
+      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:A1');
+      for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          const cellRef = XLSX.utils.encode_cell({ c: C, r: R });
+          if (!worksheet[cellRef]) continue;
+
+          const cell = worksheet[cellRef];
+
+          // Initialize style object
+          if (!cell.s) cell.s = {};
+
+          // Header Row (Row 0)
+          if (R === 0) {
+            cell.s = {
+              font: { name: 'Arial', sz: 11, bold: true, color: { rgb: "FFFFFF" } },
+              fill: { fgColor: { rgb: "04A7BD" } }, // System Primary Color
+              alignment: { horizontal: "center", vertical: "center" },
+              border: {
+                  top: { style: "thin", color: {auto: 1} },
+                  bottom: { style: "thin", color: {auto: 1} },
+                  left: { style: "thin", color: {auto: 1} },
+                  right: { style: "thin", color: {auto: 1} }
+              }
+            };
+          } 
+          // Data Rows - Check for 'X' to center
+          else if (cell.v === 'X') {
+             cell.s = {
+                alignment: { horizontal: "center", vertical: "center" }
+             };
+          }
+        }
+      }
+
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Relatório");
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Medições");
       
-      // Clean filename
       const safeName = (selectedCliente.nome_fantasia || 'Cliente').replace(/[^a-z0-9]/gi, '_');
       XLSX.writeFile(workbook, `Medicao_${safeName}.xlsx`);
   };
