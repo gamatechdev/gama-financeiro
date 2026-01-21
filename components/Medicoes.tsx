@@ -5,7 +5,8 @@ import {
   Building2, Search, ChevronRight, ArrowLeft, Calendar, 
   CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit, Stethoscope, CloudUpload, FileText, Tag, Save, DollarSign, Upload, RefreshCw, Grid, List, Trash2, Calculator, Info, FileSpreadsheet, Briefcase, Hash, Send, AlertTriangle
 } from 'lucide-react';
-import * as XLSXPkg from 'xlsx';
+import * as XLSXPkg from 'xlsx-js-style';
+import PrecoExames from './PrecoExames';
 
 const XLSX = (XLSXPkg as any).default || XLSXPkg;
 
@@ -543,6 +544,7 @@ const Medicoes: React.FC = () => {
       
       try {
           const payloads = [];
+          let totalAttendancesValue = 0; // Track total from attendances
 
           // 1. Process Attendances
           console.log(`[Importação] Processando ${importedOldData.length} atendimentos...`);
@@ -564,6 +566,7 @@ const Medicoes: React.FC = () => {
 
               // Calculate total for this person
               const totalVal = item.exams.reduce((acc, ex) => acc + (ex.price || 0), 0);
+              totalAttendancesValue += totalVal;
 
               // Map exams to snapshot format
               const snapshot = item.exams.map(ex => ({ name: ex.name, value: ex.price }));
@@ -584,8 +587,10 @@ const Medicoes: React.FC = () => {
               }
           }
 
-          // 2. Process SST Services (Documents)
-          console.log(`[Importação] Processando ${importedServices.length} serviços de SST...`);
+          // 2. Process SST Services (Documents) or Totals
+          console.log(`[Importação] Processando Serviços de SST...`);
+          
+          // Determine fallback date
           let fallbackDate = new Date().toISOString().split('T')[0];
           if (importedOldData.length > 0) {
                const lastItem = importedOldData[importedOldData.length - 1];
@@ -597,17 +602,53 @@ const Medicoes: React.FC = () => {
                }
           }
 
-          for (const service of importedServices) {
-              if (service.value > 0) {
+          if (importedServices.length > 0) {
+              // Scenario A: Detailed Services found
+              for (const service of importedServices) {
+                  if (service.value > 0) {
+                      payloads.push({
+                          empresa_resp: 'Gama Medicina',
+                          contratante: selectedCliente.id,
+                          valor_total: service.value,
+                          valor_doc: service.value, 
+                          qnt_parcela: 1,
+                          data_projetada: fallbackDate,
+                          data_executada: null,
+                          descricao: `DOCUMENTO - ${service.name}`,
+                          status: 'Pendente'
+                      });
+                  }
+              }
+          } else {
+              // Scenario B: No detailed services. Check totals.
+              // Priority 1: importedTotalSST (Explicit SST total in sheet)
+              // Priority 2: importedTotalGeneral - totalAttendancesValue (Calculated remainder)
+              
+              let amountToAdd = 0;
+              let description = '';
+
+              if (importedTotalSST > 0) {
+                  amountToAdd = importedTotalSST;
+                  description = 'CUSTO TOTAL SST (Importado)';
+              } else if (importedTotalGeneral > 0) {
+                  // Calculate remainder
+                  const remainder = importedTotalGeneral - totalAttendancesValue;
+                  if (remainder > 0.01) {
+                      amountToAdd = remainder;
+                      description = 'Serviços Administrativos / SST (Saldo Geral)';
+                  }
+              }
+
+              if (amountToAdd > 0) {
                   payloads.push({
                       empresa_resp: 'Gama Medicina',
                       contratante: selectedCliente.id,
-                      valor_total: service.value,
-                      valor_doc: service.value, 
+                      valor_total: amountToAdd,
+                      valor_doc: amountToAdd,
                       qnt_parcela: 1,
                       data_projetada: fallbackDate,
                       data_executada: null,
-                      descricao: `DOCUMENTO - ${service.name}`,
+                      descricao: description,
                       status: 'Pendente'
                   });
               }
@@ -2296,132 +2337,88 @@ const Medicoes: React.FC = () => {
                              <p className="text-sm font-medium">Importe uma planilha para visualizar os dados aqui.</p>
                          </div>
                      ) : (
-                         <div className="flex-1 overflow-auto custom-scrollbar p-6 space-y-6">
-                             
-                             {/* Section 1: Attendances */}
-                             {importedOldData.length > 0 && (
-                                <div>
-                                    <h4 className="text-sm font-bold text-slate-500 uppercase mb-3 flex items-center gap-2">
-                                        <Stethoscope size={16} /> Atendimentos Realizados ({importedOldData.length})
-                                    </h4>
-                                    <div className="space-y-2">
-                                        {importedOldData.map((item, index) => {
-                                            const totalAttendance = item.exams.reduce((acc, ex) => acc + (ex.price || 0), 0);
-                                            return (
-                                                <div key={index} className="p-4 bg-slate-50 border border-slate-100 rounded-xl hover:shadow-md transition-shadow">
-                                                    <div className="flex flex-col md:flex-row justify-between md:items-center mb-2 gap-2">
-                                                        <div className="flex items-center gap-2">
-                                                            <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-blue-600 flex items-center justify-center font-bold text-xs shrink-0">
-                                                                {index + 1}
-                                                            </div>
-                                                            <span className="font-bold text-slate-700">{item.name}</span>
-                                                        </div>
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="flex items-center gap-2 text-xs text-slate-500 bg-white px-2 py-1 rounded-lg w-fit border border-slate-200">
-                                                                <Calendar size={12} />
-                                                                {item.date}
-                                                            </div>
-                                                            <span className="text-sm font-bold text-[#04a7bd] bg-cyan-50 px-3 py-1 rounded-lg border border-cyan-100">
-                                                                {formatCurrency(totalAttendance)}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                    
-                                                    {item.exams.length > 0 ? (
-                                                        <div className="flex flex-wrap gap-2 mt-2 ml-10">
-                                                            {item.exams.map((ex, i) => (
-                                                                <div key={i} className="flex flex-col items-center">
-                                                                    <span className="text-[10px] font-bold text-slate-600 bg-white px-2 py-1 rounded-md border border-slate-200 shadow-sm">
-                                                                        {ex.name}
-                                                                    </span>
-                                                                    {ex.price > 0 && (
-                                                                        <span className="text-[9px] text-[#04a7bd] font-bold mt-0.5">
-                                                                            {formatCurrency(ex.price)}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    ) : (
-                                                        <p className="text-xs text-slate-400 italic ml-10">Nenhum exame identificado.</p>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
+                         <div className="flex-1 overflow-auto custom-scrollbar p-0">
+                            {/* Table Header */}
+                            <div className="grid grid-cols-12 bg-slate-50 border-b border-slate-200 px-4 py-2 text-xs font-bold text-slate-500 uppercase sticky top-0 z-10">
+                                <div className="col-span-2">Data</div>
+                                <div className="col-span-4">Nome</div>
+                                <div className="col-span-4">Exames/Serviços</div>
+                                <div className="col-span-2 text-right">Valor</div>
+                            </div>
+                            
+                            {/* Rows */}
+                            <div className="divide-y divide-slate-100">
+                                {importedOldData.map((item, idx) => (
+                                    <div key={idx} className="grid grid-cols-12 px-4 py-3 items-start hover:bg-slate-50 transition-colors text-sm">
+                                        <div className="col-span-2 text-slate-500 font-mono text-xs">{item.date}</div>
+                                        <div className="col-span-4 font-bold text-slate-700">{item.name}</div>
+                                        <div className="col-span-4 text-xs text-slate-500">
+                                            {item.exams.map((ex, i) => (
+                                                <span key={i} className="inline-block bg-slate-100 px-1.5 py-0.5 rounded mr-1 mb-1 border border-slate-200">
+                                                    {ex.name}
+                                                </span>
+                                            ))}
+                                        </div>
+                                        <div className="col-span-2 text-right font-bold text-slate-700">
+                                            {formatCurrency(item.exams.reduce((acc, curr) => acc + (curr.price || 0), 0))}
+                                        </div>
                                     </div>
-                                </div>
-                             )}
+                                ))}
 
-                             {/* Section 2: SST Services */}
-                             {importedServices.length > 0 && (
-                                <div className="pt-4 border-t border-slate-100">
-                                    <h4 className="text-sm font-bold text-slate-500 uppercase mb-3 flex items-center gap-2">
-                                        <Briefcase size={16} /> Serviços de SST ({importedServices.length})
-                                    </h4>
-                                    <div className="bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
-                                        <table className="w-full text-sm">
-                                            <thead className="bg-slate-100 text-slate-500 text-xs uppercase">
-                                                <tr>
-                                                    <th className="px-4 py-3 text-left font-bold">Descrição</th>
-                                                    <th className="px-4 py-3 text-right font-bold">Valor</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-200">
-                                                {importedServices.map((service, idx) => (
-                                                    <tr key={idx} className="hover:bg-white transition-colors">
-                                                        <td className="px-4 py-3 font-medium text-slate-700">{service.name}</td>
-                                                        <td className="px-4 py-3 text-right font-bold text-slate-800">{formatCurrency(service.value)}</td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
+                                {importedServices.map((svc, idx) => (
+                                    <div key={`svc-${idx}`} className="grid grid-cols-12 px-4 py-3 items-start bg-orange-50/30 hover:bg-orange-50/50 transition-colors text-sm border-l-4 border-l-orange-400">
+                                        <div className="col-span-2 text-slate-400 text-xs italic">SST / Doc</div>
+                                        <div className="col-span-4 font-bold text-slate-700">Serviço de SST</div>
+                                        <div className="col-span-4 text-xs text-slate-500">{svc.name}</div>
+                                        <div className="col-span-2 text-right font-bold text-orange-600">
+                                            {formatCurrency(svc.value)}
+                                        </div>
                                     </div>
-                                </div>
-                             )}
+                                ))}
 
-                         </div>
-                     )}
-                 </div>
-                 
-                 {/* Footer Totals & Actions */}
-                 <div className="bg-slate-900 p-6 flex flex-col gap-4 border-t border-slate-800">
-                     {(importedTotalSST > 0 || importedTotalGeneral > 0) && (
-                         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                             <div className="flex items-center gap-2 text-slate-400 text-xs uppercase font-bold">
-                                 <Hash size={14} /> Resumo Financeiro
-                             </div>
-                             <div className="flex gap-8">
-                                 {importedTotalSST > 0 && (
-                                     <div className="text-right">
-                                         <p className="text-[10px] text-slate-400 uppercase font-bold">Custo Total SST</p>
-                                         <p className="text-xl font-bold text-blue-400">{formatCurrency(importedTotalSST)}</p>
+                                {importedTotalSST > 0 && importedServices.length === 0 && (
+                                     <div className="grid grid-cols-12 px-4 py-3 items-center bg-orange-50/50 border-l-4 border-l-orange-400">
+                                         <div className="col-span-6 font-bold text-slate-700 uppercase text-xs">Custo Total SST (Detectado)</div>
+                                         <div className="col-span-6 text-right font-bold text-orange-600">{formatCurrency(importedTotalSST)}</div>
                                      </div>
-                                 )}
-                                 {importedTotalGeneral > 0 && (
-                                     <div className="text-right">
-                                         <p className="text-[10px] text-slate-400 uppercase font-bold">Total Geral</p>
-                                         <p className="text-2xl font-bold text-white">{formatCurrency(importedTotalGeneral)}</p>
-                                     </div>
-                                 )}
-                             </div>
+                                )}
+                            </div>
                          </div>
                      )}
                      
-                     <div className="flex justify-end pt-4 border-t border-slate-800">
-                        <button 
-                            onClick={handleSendImportedToFinance}
-                            disabled={sendingToFinance || (importedOldData.length === 0 && importedServices.length === 0)}
-                            className="bg-[#04a7bd] hover:bg-[#038fa3] text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-[#04a7bd]/20 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {sendingToFinance ? (
-                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                            ) : (
-                                <Send size={18} />
-                            )}
-                            Enviar para Financeiro
-                        </button>
+                     {/* Footer Stats */}
+                     <div className="bg-slate-50 border-t border-slate-200 p-4 flex justify-between items-center text-sm">
+                         <div>
+                             <p className="text-slate-500 font-medium">Registros Encontrados: <strong className="text-slate-800">{importedOldData.length + importedServices.length}</strong></p>
+                         </div>
+                         <div className="text-right">
+                             <p className="text-xs text-slate-400 uppercase font-bold">Total Geral Importado</p>
+                             <p className="text-xl font-bold text-[#050a30]">
+                                 {formatCurrency(
+                                     importedOldData.reduce((acc, item) => acc + item.exams.reduce((s, e) => s + (e.price || 0), 0), 0) + 
+                                     importedServices.reduce((acc, s) => acc + (s.value || 0), 0) +
+                                     (importedServices.length === 0 ? importedTotalSST : 0)
+                                 )}
+                             </p>
+                         </div>
                      </div>
                  </div>
+             </div>
+
+             <div className="px-8 py-5 border-t border-slate-100 bg-white flex justify-end gap-3">
+                 <button 
+                     onClick={() => setIsImportOldModalOpen(false)}
+                     className="px-6 py-3 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors"
+                 >
+                     Cancelar
+                 </button>
+                 <button 
+                     onClick={handleSendImportedToFinance}
+                     disabled={importedOldData.length === 0 && importedServices.length === 0 && importedTotalSST === 0}
+                     className="px-8 py-3 bg-[#050a30] text-white font-bold rounded-xl hover:bg-[#030720] transition-all shadow-lg shadow-[#050a30]/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                 >
+                     Processar Importação <ArrowRight size={16} />
+                 </button>
              </div>
           </div>
         </div>
@@ -2429,302 +2426,138 @@ const Medicoes: React.FC = () => {
 
       {/* CONFIRM IMPORT MODAL */}
       {showConfirmImportModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => !sendingToFinance && setShowConfirmImportModal(false)}></div>
-            <div className="bg-white w-full max-w-md rounded-3xl relative z-10 p-8 shadow-2xl animate-[scaleIn_0.2s_ease-out] border border-slate-100">
-                
-                <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center mb-4">
-                    <AlertTriangle size={24} />
-                </div>
-
-                <h3 className="text-xl font-bold text-slate-800 mb-2">Confirmar Importação</h3>
-                <p className="text-slate-500 text-sm mb-6">
-                    Você está prestes a gerar <strong>{importedOldData.length} atendimentos</strong> e <strong>{importedServices.length} serviços</strong> no financeiro para <strong>{selectedCliente?.nome_fantasia}</strong>.
-                    <br/><br/>
-                    Isso criará receitas pendentes. Deseja continuar?
-                </p>
-
-                <div className="flex gap-3">
-                    <button 
-                        onClick={() => setShowConfirmImportModal(false)}
-                        disabled={sendingToFinance}
-                        className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-colors border border-slate-200"
-                    >
-                        Cancelar
-                    </button>
-                    <button 
-                        onClick={confirmImport}
-                        disabled={sendingToFinance}
-                        className="flex-1 py-3 bg-[#04a7bd] text-white font-bold rounded-xl hover:bg-[#038fa3] transition-colors shadow-lg flex items-center justify-center gap-2"
-                    >
-                        {sendingToFinance ? (
-                            <>
-                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                Processando...
-                            </>
-                        ) : (
-                            <>
-                                <Check size={18} />
-                                Confirmar
-                            </>
-                        )}
-                    </button>
-                </div>
-            </div>
-        </div>
-      )}
-
-      {/* EXAM SELECTION MODAL */}
-      {isExamSelectionOpen && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-              <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setIsExamSelectionOpen(false)}></div>
-              
-              <div className="glass-panel w-full max-w-md rounded-[28px] relative z-10 p-6 bg-white shadow-2xl border border-white/60 animate-[scaleIn_0.2s_ease-out] flex flex-col max-h-[80vh]">
-                  <div className="flex justify-between items-center mb-4">
-                      <div>
-                          <h3 className="text-lg font-bold text-[#050a30]">Selecionar Exames</h3>
-                          <p className="text-xs text-slate-500">Adicione à medição atual</p>
-                      </div>
-                      <button 
-                          onClick={() => setIsExamSelectionOpen(false)}
-                          className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
-                      >
-                          <X size={18} />
-                      </button>
+              <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowConfirmImportModal(false)}></div>
+              <div className="bg-white w-full max-w-md rounded-3xl relative z-10 p-8 shadow-2xl animate-[scaleIn_0.2s_ease-out]">
+                  <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-6 mx-auto">
+                      <CloudUpload size={32} />
                   </div>
-
-                  <div className="relative mb-4">
-                      <input 
-                          type="text" 
-                          placeholder="Buscar exame..." 
-                          value={examSearchTerm}
-                          onChange={(e) => setExamSearchTerm(e.target.value)}
-                          className="w-full bg-slate-100 border border-transparent focus:bg-white focus:border-[#04a7bd] rounded-xl py-3 pl-10 pr-4 text-sm outline-none transition-all"
-                          autoFocus
-                      />
-                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  </div>
-
-                  <div className="overflow-y-auto flex-1 pr-1 custom-scrollbar space-y-2">
-                      {EXAMS_LIST.filter(ex => ex.nome.toLowerCase().includes(examSearchTerm.toLowerCase())).map((exam) => {
-                          const isSelected = snapshotItems.some(i => i.name === exam.nome);
-                          const price = clientPrices[exam.nome] || 0;
-
-                          return (
-                              <div 
-                                  key={exam.id}
-                                  onClick={() => handleToggleExam(exam.nome)}
-                                  className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${isSelected ? 'bg-cyan-50 border-cyan-200' : 'bg-white border-slate-100 hover:border-slate-300'}`}
-                              >
-                                  <div className="flex items-center gap-3">
-                                      <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${isSelected ? 'bg-[#04a7bd] border-[#04a7bd]' : 'border-slate-300 bg-white'}`}>
-                                          {isSelected && <Check size={12} className="text-white" />}
-                                      </div>
-                                      <div>
-                                          <p className={`text-sm font-bold ${isSelected ? 'text-[#050a30]' : 'text-slate-600'}`}>{exam.nome}</p>
-                                          {price > 0 && <p className="text-[10px] text-slate-400">Preço tabulado: {formatCurrency(price)}</p>}
-                                      </div>
-                                  </div>
-                                  {isSelected && <span className="text-[10px] font-bold text-[#04a7bd] bg-white px-2 py-0.5 rounded-full shadow-sm">Selecionado</span>}
-                              </div>
-                          );
-                      })}
-                      {EXAMS_LIST.filter(ex => ex.nome.toLowerCase().includes(examSearchTerm.toLowerCase())).length === 0 && (
-                          <div className="text-center py-8 text-slate-400 text-sm">
-                              Nenhum exame encontrado.
-                          </div>
-                      )}
-                  </div>
+                  <h3 className="text-xl font-bold text-center text-slate-800 mb-2">Confirmar Envio</h3>
+                  <p className="text-center text-slate-500 text-sm mb-6">
+                      Você está prestes a criar <strong>{importedOldData.length + (importedServices.length > 0 ? importedServices.length : (importedTotalSST > 0 ? 1 : 0))}</strong> registros financeiros para <strong>{selectedCliente.nome_fantasia}</strong> com base na planilha importada.
+                  </p>
                   
-                  <div className="pt-4 mt-2 border-t border-slate-100">
+                  <div className="flex gap-3">
                       <button 
-                          onClick={() => setIsExamSelectionOpen(false)}
-                          className="w-full py-3 bg-[#050a30] text-white font-bold rounded-xl hover:bg-[#030720] transition-colors shadow-lg"
+                          onClick={() => setShowConfirmImportModal(false)}
+                          className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-colors"
                       >
-                          Concluir Seleção
+                          Cancelar
+                      </button>
+                      <button 
+                          onClick={confirmImport}
+                          disabled={sendingToFinance}
+                          className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg flex items-center justify-center gap-2"
+                      >
+                          {sendingToFinance ? 'Enviando...' : 'Confirmar'}
                       </button>
                   </div>
               </div>
           </div>
       )}
 
-      {/* VALUES / PRICES MODAL */}
-      {isValuesModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setIsValuesModalOpen(false)}></div>
-          
-          <div className="glass-panel w-full max-w-4xl rounded-[28px] relative z-10 p-6 bg-white shadow-2xl border border-white/60 animate-[scaleIn_0.2s_ease-out] flex flex-col max-h-[90vh]">
-             {/* Header */}
-             <div className="flex justify-between items-center mb-6">
-                <div>
-                   <h3 className="text-xl font-bold text-[#050a30]">Tabela de Preços</h3>
-                   <p className="text-slate-500 text-sm">Gerencie os valores de exames para {selectedCliente?.nome_fantasia}</p>
-                </div>
-                <div className="flex gap-2">
-                   <input 
-                      type="file" 
-                      ref={fileInputRef}
-                      onChange={handleExcelFileChange}
-                      className="hidden"
-                      accept=".xlsx, .xls"
-                   />
-                   <button 
-                      onClick={handleImportExcelClick}
-                      className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors flex items-center gap-2"
-                   >
-                      <CloudUpload size={16} /> Importar Excel
-                   </button>
-                   <button 
-                      onClick={() => setIsValuesModalOpen(false)}
-                      className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
-                   >
-                      <X size={18} />
-                   </button>
-                </div>
-             </div>
-
-             {/* Search */}
-             <div className="relative mb-4">
-                 <input 
-                    type="text" 
-                    placeholder="Buscar exame..." 
-                    value={searchExam}
-                    onChange={(e) => setSearchExam(e.target.value)}
-                    className="w-full bg-slate-100 border border-transparent focus:bg-white focus:border-[#04a7bd] rounded-xl py-3 pl-10 pr-4 text-sm outline-none transition-all"
-                 />
-                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-             </div>
-
-             {/* Filter Buttons */}
-             <div className="flex gap-2 mb-4">
-                <button
-                    onClick={() => setPriceFilter('all')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${priceFilter === 'all' ? 'bg-[#04a7bd] text-white border-[#04a7bd]' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
-                >
-                    Todos
-                </button>
-                <button
-                    onClick={() => setPriceFilter('filled')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${priceFilter === 'filled' ? 'bg-[#04a7bd] text-white border-[#04a7bd]' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
-                >
-                    Com Valor
-                </button>
-                <button
-                    onClick={() => setPriceFilter('empty')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${priceFilter === 'empty' ? 'bg-[#04a7bd] text-white border-[#04a7bd]' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
-                >
-                    Sem Valor
-                </button>
-             </div>
-
-             {/* List */}
-             <div className="overflow-y-auto flex-1 pr-2 custom-scrollbar grid grid-cols-1 md:grid-cols-2 gap-3 pb-4">
-                 {filteredExams.map((exam, idx) => {
-                      const currentPrice = priceMap[exam.nome]?.price || '';
-                      const hasDbRecord = !!priceMap[exam.nome]?.dbId;
-
-                      return (
-                          <div 
-                            key={idx} 
-                            className={`
-                                p-3 rounded-xl flex items-center justify-between gap-3 border transition-all
-                                ${currentPrice && parseFloat(currentPrice) > 0 ? 'bg-cyan-50/30 border-cyan-100' : 'bg-white border-slate-100'}
-                            `}
-                          >
-                              <div className="flex items-center gap-2 min-w-0">
-                                  <div className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${hasDbRecord ? 'bg-teal-50 text-[#149890]' : 'bg-slate-100 text-slate-400'}`}>
-                                      <Stethoscope size={12} />
-                                  </div>
-                                  <span className="text-xs font-bold text-slate-700 truncate" title={exam.nome}>
-                                      {exam.nome}
-                                  </span>
+      {/* Values Modal */}
+      {isValuesModalOpen && <PrecoExamesModal onClose={() => setIsValuesModalOpen(false)} clientId={selectedCliente.id} />}
+      
+      {/* Exam Selection Modal */}
+      {isExamSelectionOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setIsExamSelectionOpen(false)}></div>
+              <div className="bg-white w-full max-w-lg rounded-2xl relative z-10 p-0 shadow-xl overflow-hidden flex flex-col max-h-[80vh]">
+                  <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+                      <h3 className="font-bold text-slate-700">Selecionar Exames</h3>
+                      <button onClick={() => setIsExamSelectionOpen(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-500">
+                          <X size={18} />
+                      </button>
+                  </div>
+                  <div className="p-2 border-b border-slate-100 bg-slate-50">
+                      <div className="relative">
+                          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input 
+                              type="text" 
+                              placeholder="Buscar exame..."
+                              value={examSearchTerm}
+                              onChange={(e) => setExamSearchTerm(e.target.value)}
+                              className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-[#04a7bd]"
+                              autoFocus
+                          />
+                      </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-2">
+                      {EXAMS_LIST.filter(ex => ex.nome.toLowerCase().includes(examSearchTerm.toLowerCase())).map(exam => {
+                          const isSelected = snapshotItems.some(i => i.name === exam.nome);
+                          return (
+                              <div 
+                                  key={exam.id} 
+                                  onClick={() => handleToggleExam(exam.nome)}
+                                  className={`p-3 rounded-lg cursor-pointer flex justify-between items-center mb-1 transition-colors ${isSelected ? 'bg-cyan-50 border border-cyan-100' : 'hover:bg-slate-50 border border-transparent'}`}
+                              >
+                                  <span className={`text-sm font-medium ${isSelected ? 'text-[#04a7bd]' : 'text-slate-700'}`}>{exam.nome}</span>
+                                  {isSelected && <Check size={16} className="text-[#04a7bd]" />}
                               </div>
-
-                              <div className="relative w-24 shrink-0">
-                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">R$</span>
-                                  <input 
-                                      type="number" 
-                                      step="0.01"
-                                      placeholder="0.00"
-                                      value={currentPrice}
-                                      onChange={(e) => handlePriceMapChange(exam.nome, e.target.value)}
-                                      className="w-full border rounded-lg py-1.5 pl-6 pr-2 text-right font-bold text-xs focus:outline-none focus:border-[#04a7bd] transition-all bg-white"
-                                  />
-                              </div>
-                          </div>
-                      );
-                 })}
-             </div>
-             
-             {/* Footer */}
-             <div className="pt-4 mt-2 border-t border-slate-100 flex justify-end gap-3">
-                 <button 
-                     onClick={() => setIsValuesModalOpen(false)}
-                     className="px-5 py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors text-sm"
-                 >
-                     Cancelar
-                 </button>
-                 <button 
-                     onClick={handleSavePrices}
-                     disabled={savingPrices}
-                     className="px-6 py-3 bg-[#04a7bd] text-white font-bold rounded-xl hover:bg-[#038fa3] transition-colors shadow-lg shadow-cyan-500/20 text-sm flex items-center gap-2"
-                 >
-                     {savingPrices ? 'Salvando...' : 'Salvar Tabela'}
-                 </button>
-             </div>
+                          );
+                      })}
+                  </div>
+              </div>
           </div>
-        </div>
       )}
 
-      {/* SHARE MODAL */}
+      {/* Share Link Modal */}
       {isShareModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/20 backdrop-blur-md" onClick={() => setIsShareModalOpen(false)}></div>
-          
-          <div className="bg-white w-full max-w-md rounded-[32px] relative z-10 p-8 shadow-2xl animate-[scaleIn_0.2s_ease-out] border border-white/60">
-            <div className="w-16 h-16 bg-green-50 text-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Share2 size={32} />
-            </div>
-            
-            <h3 className="text-xl font-bold text-center text-[#050a30] mb-2">Link Gerado com Sucesso!</h3>
-            <p className="text-center text-slate-500 text-sm mb-6">
-              Envie este link para <strong>{selectedCliente?.nome_fantasia}</strong> visualizar a medição.
-            </p>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsShareModalOpen(false)}></div>
+              <div className="bg-white w-full max-w-md rounded-3xl relative z-10 p-8 shadow-2xl animate-[scaleIn_0.2s_ease-out]">
+                  <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6 mx-auto">
+                      <CheckCircle size={32} />
+                  </div>
+                  <h3 className="text-xl font-bold text-center text-slate-800 mb-2">Link Gerado com Sucesso!</h3>
+                  <p className="text-center text-slate-500 text-sm mb-6">
+                      A medição foi marcada como "Aguardando" e o link de acesso público foi gerado. Envie para o cliente.
+                  </p>
+                  
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center gap-2 mb-6 overflow-hidden">
+                      <div className="flex-1 truncate text-xs text-slate-500 font-mono">
+                          {generatedLink}
+                      </div>
+                      <button onClick={copyToClipboard} className="p-2 bg-white border border-slate-200 rounded-lg hover:text-[#04a7bd] transition-colors">
+                          <Copy size={16} />
+                      </button>
+                  </div>
 
-            <div className="bg-slate-100 p-4 rounded-xl flex items-center gap-3 mb-6 relative group">
-               <p className="text-xs text-slate-500 font-mono truncate flex-1">{generatedLink}</p>
-               <div className="absolute inset-0 bg-slate-800/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl pointer-events-none"></div>
-            </div>
-
-            <div className="flex gap-3 mb-3">
-               <button 
-                onClick={() => setIsShareModalOpen(false)}
-                className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-colors border border-slate-100"
-               >
-                 Fechar
-               </button>
-               <button 
-                onClick={copyToClipboard}
-                className="flex-1 py-3 bg-[#050a30] text-white font-bold rounded-xl hover:bg-[#030720] transition-colors shadow-lg flex items-center justify-center gap-2"
-               >
-                 <Copy size={18} />
-                 Copiar Link
-               </button>
-            </div>
-            
-            <button 
-                onClick={handleDownloadExcel}
-                className="w-full py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors shadow-lg flex items-center justify-center gap-2"
-            >
-                <FileSpreadsheet size={18} />
-                Baixar Planilha de Medição
-            </button>
+                  <button 
+                      onClick={() => setIsShareModalOpen(false)}
+                      className="w-full py-3 bg-[#050a30] text-white font-bold rounded-xl hover:bg-[#030720] transition-colors shadow-lg"
+                  >
+                      Fechar
+                  </button>
+              </div>
           </div>
-        </div>
       )}
 
     </div>
   );
+};
+
+// Internal Component for PrecoExames within Modal
+import PrecoExamesInternal from './PrecoExames';
+
+const PrecoExamesModal: React.FC<{onClose: () => void, clientId: string}> = ({ onClose, clientId }) => {
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={onClose}></div>
+            <div className="bg-white w-full max-w-4xl rounded-3xl relative z-10 p-0 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                 <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                     <h3 className="font-bold text-slate-700">Tabela de Preços</h3>
+                     <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500">
+                         <X size={20} />
+                     </button>
+                 </div>
+                 <div className="flex-1 overflow-y-auto p-0">
+                     <PrecoExamesInternal /> 
+                 </div>
+            </div>
+        </div>
+    );
 };
 
 export default Medicoes;
