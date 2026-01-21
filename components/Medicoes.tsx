@@ -3,13 +3,13 @@ import { supabase } from '../supabaseClient';
 import { Cliente, FinanceiroReceita } from '../types';
 import { 
   Building2, Search, ChevronRight, ArrowLeft, Calendar, 
-  CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit, Stethoscope, CloudUpload, FileText, Tag, Save, DollarSign, Upload, RefreshCw, Grid, List, Trash2, Calculator, Info, FileSpreadsheet
+  CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit, Stethoscope, CloudUpload, FileText, Tag, Save, DollarSign, Upload, RefreshCw, Grid, List, Trash2, Calculator, Info, FileSpreadsheet, Briefcase, Hash, Send, AlertTriangle
 } from 'lucide-react';
 import * as XLSXPkg from 'xlsx';
 
 const XLSX = (XLSXPkg as any).default || XLSXPkg;
 
-// Shared list of exams (same as PrecoExames)
+// Shared list of exams
 const EXAMS_LIST = [
   {"idx":0,"id":447,"nome":"Avaliação Clínica"},
   {"idx":1,"id":448,"nome":"Audiometria"},
@@ -63,6 +63,17 @@ const EXAMS_LIST = [
   {"idx":49,"id":496,"nome":"Exame Toxicológico Urina"}
 ];
 
+interface ImportedAttendance {
+    date: string;
+    name: string;
+    exams: { name: string, price: number }[];
+}
+
+interface ImportedService {
+    name: string;
+    value: number;
+}
+
 const Medicoes: React.FC = () => {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,10 +94,21 @@ const Medicoes: React.FC = () => {
   // Modal States
   const [isModalOpen, setIsModalOpen] = useState(false); // Add Revenue Modal
   const [isShareModalOpen, setIsShareModalOpen] = useState(false); // Share Link Modal
-  const [isValuesModalOpen, setIsValuesModalOpen] = useState(false); // NEW: Manage Prices Modal
-  const [isExamSelectionOpen, setIsExamSelectionOpen] = useState(false); // NEW: Exam Selection Modal
+  const [isValuesModalOpen, setIsValuesModalOpen] = useState(false); // Manage Prices Modal
+  const [isExamSelectionOpen, setIsExamSelectionOpen] = useState(false); // Exam Selection Modal
+  const [isImportOldModalOpen, setIsImportOldModalOpen] = useState(false); // NEW: Import Old Measurement Modal
+  const [showConfirmImportModal, setShowConfirmImportModal] = useState(false); // NEW: Confirm Import Modal
+
   const [generatedLink, setGeneratedLink] = useState('');
   
+  // Import Old Measurement State
+  const [importedOldData, setImportedOldData] = useState<ImportedAttendance[]>([]);
+  const [importedServices, setImportedServices] = useState<ImportedService[]>([]);
+  const [importedTotalSST, setImportedTotalSST] = useState<number>(0);
+  const [importedTotalGeneral, setImportedTotalGeneral] = useState<number>(0);
+  const oldFileInputRef = useRef<HTMLInputElement>(null);
+  const [sendingToFinance, setSendingToFinance] = useState(false);
+
   // Edit State
   const [editingId, setEditingId] = useState<number | null>(null);
   // Snapshot Item State for Editing
@@ -267,6 +289,358 @@ const Medicoes: React.FC = () => {
     return `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} ${yearNum}`;
   };
 
+  // --- IMPORT OLD MEASUREMENT LOGIC ---
+  const handleOpenImportOld = () => {
+      setImportedOldData([]);
+      setImportedServices([]);
+      setImportedTotalSST(0);
+      setImportedTotalGeneral(0);
+      setIsImportOldModalOpen(true);
+      setShowConfirmImportModal(false);
+  };
+
+  const handleOldFileClick = () => {
+      oldFileInputRef.current?.click();
+  };
+
+  // --- HELPER PARA PARSEAR VALORES ---
+  const parseImportedValue = (val: any) => {
+      if (val === null || val === undefined || val === '') return 0;
+      if (typeof val === 'number') return val;
+
+      let str = String(val).trim();
+      str = str.replace('R$', '').replace('$', '').replace(/\s/g, '');
+
+      const lastDot = str.lastIndexOf('.');
+      const lastComma = str.lastIndexOf(',');
+
+      if (lastDot > -1 && lastComma > -1) {
+          if (lastDot > lastComma) {
+              return parseFloat(str.replace(/,/g, ''));
+          } else {
+              return parseFloat(str.replace(/\./g, '').replace(',', '.'));
+          }
+      }
+
+      if (lastDot > -1) {
+          return parseFloat(str);
+      }
+
+      if (lastComma > -1) {
+          const parts = str.split(',');
+          const decimals = parts[parts.length - 1];
+          if (decimals.length === 3) {
+              return parseFloat(str.replace(/,/g, ''));
+          }
+          return parseFloat(str.replace(',', '.'));
+      }
+
+      return parseFloat(str);
+  };
+
+  // --- HELPER PARA CORRIGIR DATAS (FIXED) ---
+  const fixImportedDate = (val: any) => {
+      if (!val) return '';
+      
+      // Se for número (Data Serial do Excel)
+      if (typeof val === 'number') {
+          const date = new Date(Math.round((val - 25569) * 86400 * 1000));
+          date.setMinutes(date.getMinutes() + date.getTimezoneOffset());
+          const day = String(date.getDate()).padStart(2, '0');
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const year = date.getFullYear();
+          return `${day}/${month}/${year}`;
+      }
+
+      let str = String(val).trim();
+      
+      // Normalize: replace hyphen and dot with slash to handle "25-12-16" or "25.12.2025"
+      str = str.replace(/-/g, '/').replace(/\./g, '/');
+      
+      if (str.includes('/')) {
+          const parts = str.split('/');
+          if (parts.length === 3) {
+              let p0 = parseInt(parts[0]);
+              let p1 = parseInt(parts[1]);
+              let p2 = parseInt(parts[2]);
+
+              let day, month, year;
+
+              // Try to detect YYYY/MM/DD
+              if (p0 > 31) {
+                  year = p0;
+                  month = p1;
+                  day = p2;
+              } else {
+                  // Assume DD/MM/YYYY or MM/DD/YYYY
+                  day = p0;
+                  month = p1;
+                  year = p2;
+
+                  // Heuristic: If Month > 12, swap (US Format fix)
+                  if (month > 12 && day <= 12) {
+                      const t = day; day = month; month = t;
+                  }
+              }
+
+              // Fix 2-digit years (e.g. 25 -> 2025)
+              if (year < 100) {
+                  year += 2000;
+              }
+
+              return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+          }
+      }
+      return str;
+  };
+
+  const handleOldFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      try {
+          const data = await file.arrayBuffer();
+          const workbook = XLSX.read(data);
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
+          const merges = worksheet['!merges'] || [];
+
+          const processedAttendances: ImportedAttendance[] = [];
+          const processedServices: ImportedService[] = [];
+          let foundTotalSST = 0;
+          let foundTotalGeneral = 0;
+
+          let readingAttendances = true;
+          let readingSST = false;
+
+          const headers = jsonData[0] as string[]; 
+
+          const columnPrices: Record<number, number> = {};
+          
+          if (headers) {
+              for (let c = 4; c < headers.length; c++) {
+                  for (let r = 1; r < Math.min(jsonData.length, 15); r++) {
+                      const row = jsonData[r] as any[];
+                      if (row) {
+                          const valRaw = row[c];
+                          if (valRaw != 1 && valRaw != '1') {
+                              const parsed = parseImportedValue(valRaw);
+                              if (parsed > 0) {
+                                  columnPrices[c] = parsed;
+                                  break; 
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+
+          for(let i = 1; i < jsonData.length; i++) {
+              const row = jsonData[i] as any[];
+              if(!row) continue;
+
+              const colA = row[0] ? String(row[0]).toUpperCase().trim() : '';
+              
+              if (colA.includes('DESCRIÇÃO DO SERVIÇO DE SST')) {
+                  readingAttendances = false;
+                  readingSST = true;
+                  continue; 
+              }
+
+              if (colA.includes('CUSTO TOTAL SST')) {
+                  readingSST = false;
+                  foundTotalSST = parseImportedValue(row[4]);
+                  continue;
+              }
+
+              if (colA.includes('TOTAL GERAL')) {
+                  foundTotalGeneral = parseImportedValue(row[4]); 
+                  continue;
+              }
+
+              if (readingAttendances) {
+                  const isMergedAD = merges.some((m: any) => m.s.r === i && m.s.c === 0 && m.e.c >= 3);
+                  
+                  if (isMergedAD) {
+                      readingAttendances = false;
+                      continue; 
+                  }
+
+                  const name = row[1]; 
+                  const rawDate = row[0]; 
+                  if (!name || typeof name === 'number') continue;
+
+                  const date = fixImportedDate(rawDate);
+
+                  const examsFound: { name: string, price: number }[] = [];
+                  for(let c = 4; c < row.length; c++) {
+                      const cellValue = row[c];
+                      if (cellValue == 1 || cellValue === '1') {
+                          if (headers[c]) {
+                              examsFound.push({
+                                  name: headers[c],
+                                  price: columnPrices[c] || 0
+                              });
+                          }
+                      }
+                  }
+
+                  if (examsFound.length > 0 || name.length > 3) {
+                      processedAttendances.push({
+                          date: date,
+                          name: name,
+                          exams: examsFound
+                      });
+                  }
+
+              } else if (readingSST) {
+                  const serviceName = row[0] || row[1];
+                  const valRaw = row[4]; 
+
+                  if (serviceName) {
+                      const val = parseImportedValue(valRaw);
+                      if (val > 0 || serviceName) {
+                          processedServices.push({
+                              name: serviceName,
+                              value: val
+                          });
+                      }
+                  }
+              }
+          }
+          
+          setImportedOldData(processedAttendances);
+          setImportedServices(processedServices);
+          setImportedTotalSST(foundTotalSST);
+          setImportedTotalGeneral(foundTotalGeneral);
+
+      } catch (err) {
+          console.error("Erro ao ler arquivo antigo:", err);
+          alert("Erro ao processar planilha.");
+      } finally {
+          if (oldFileInputRef.current) {
+              oldFileInputRef.current.value = '';
+          }
+      }
+  };
+
+  const handleSendImportedToFinance = () => {
+      if (importedOldData.length === 0 && importedServices.length === 0) {
+          alert("Nenhum dado importado para enviar.");
+          return;
+      }
+      setShowConfirmImportModal(true);
+  };
+
+  const confirmImport = async () => {
+      if (!selectedCliente) return;
+
+      setSendingToFinance(true);
+      console.log("[Importação] Iniciando processo de importação...");
+      console.log(`[Importação] Cliente: ${selectedCliente.nome_fantasia} (ID: ${selectedCliente.id})`);
+      
+      try {
+          const payloads = [];
+
+          // 1. Process Attendances
+          console.log(`[Importação] Processando ${importedOldData.length} atendimentos...`);
+          for (const item of importedOldData) {
+              // Convert DD/MM/YYYY to YYYY-MM-DD
+              let formattedDate = null;
+              if (item.date && item.date.includes('/')) {
+                  const parts = item.date.split('/');
+                  if (parts.length === 3) {
+                      const d = parts[0];
+                      const m = parts[1];
+                      const y = parts[2];
+                      // Validar que são números e o ano tem 4 dígitos
+                      if (!isNaN(Number(d)) && !isNaN(Number(m)) && !isNaN(Number(y)) && y.length === 4) {
+                          formattedDate = `${y}-${m}-${d}`;
+                      }
+                  }
+              }
+
+              // Calculate total for this person
+              const totalVal = item.exams.reduce((acc, ex) => acc + (ex.price || 0), 0);
+
+              // Map exams to snapshot format
+              const snapshot = item.exams.map(ex => ({ name: ex.name, value: ex.price }));
+
+              if (totalVal > 0) {
+                  payloads.push({
+                      empresa_resp: 'Gama Medicina',
+                      contratante: selectedCliente.id,
+                      valor_total: totalVal,
+                      valor_med: totalVal, 
+                      qnt_parcela: 1,
+                      data_projetada: formattedDate, // Now safely YYYY-MM-DD
+                      data_executada: null,
+                      descricao: `Atendimento - ${item.name}`,
+                      status: 'Pendente',
+                      exames_snapshot: snapshot
+                  });
+              }
+          }
+
+          // 2. Process SST Services (Documents)
+          console.log(`[Importação] Processando ${importedServices.length} serviços de SST...`);
+          let fallbackDate = new Date().toISOString().split('T')[0];
+          if (importedOldData.length > 0) {
+               const lastItem = importedOldData[importedOldData.length - 1];
+               if (lastItem.date && lastItem.date.includes('/')) {
+                   const parts = lastItem.date.split('/');
+                   if (parts.length === 3 && parts[2].length === 4) {
+                       fallbackDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                   }
+               }
+          }
+
+          for (const service of importedServices) {
+              if (service.value > 0) {
+                  payloads.push({
+                      empresa_resp: 'Gama Medicina',
+                      contratante: selectedCliente.id,
+                      valor_total: service.value,
+                      valor_doc: service.value, 
+                      qnt_parcela: 1,
+                      data_projetada: fallbackDate,
+                      data_executada: null,
+                      descricao: `DOCUMENTO - ${service.name}`,
+                      status: 'Pendente'
+                  });
+              }
+          }
+
+          console.log(`[Importação] Total de registros a criar: ${payloads.length}`);
+          
+          if (payloads.length === 0) {
+              console.warn("[Importação] Nenhum payload gerado. Abortando.");
+              alert("Nada para importar.");
+              setSendingToFinance(false);
+              setShowConfirmImportModal(false);
+              return;
+          }
+
+          console.log("[Importação] Enviando para Supabase...", payloads);
+          const { error } = await supabase.from('financeiro_receitas').insert(payloads);
+          if (error) throw error;
+
+          console.log("[Importação] Sucesso!");
+          alert("Registros enviados para o financeiro com sucesso!");
+          setIsImportOldModalOpen(false);
+          setShowConfirmImportModal(false);
+          fetchReceitasDoCliente();
+
+      } catch (err) {
+          console.error("[Importação] Erro crítico:", err);
+          alert("Erro ao salvar registros. Verifique as datas na planilha.");
+      } finally {
+          setSendingToFinance(false);
+      }
+  };
+
   // --- PRICE MANAGEMENT LOGIC ---
   const fetchClientPrices = async () => {
       if (!selectedCliente) return;
@@ -330,7 +704,7 @@ const Medicoes: React.FC = () => {
               });
           }
 
-          // 2. Get All Pending Revenues for this Client (Ignore date filter, update everything pending)
+          // 2. Get All Pending Revenues for this Client
           const { data: receitas } = await supabase
               .from('financeiro_receitas')
               .select('*')
@@ -347,14 +721,12 @@ const Medicoes: React.FC = () => {
 
           // 3. Process each revenue
           for (const r of receitas) {
-              // Only process if it has a snapshot
               if (!r.exames_snapshot || !Array.isArray(r.exames_snapshot) || r.exames_snapshot.length === 0) {
                   continue;
               }
 
               let newTotal = 0;
               const newSnapshot = r.exames_snapshot.map((item: any) => {
-                  // Normalize item processing for bulk update too
                   let name = '';
                   let currentVal = 0;
 
@@ -374,8 +746,6 @@ const Medicoes: React.FC = () => {
                   }
                   
                   const normName = normalizeStr(name);
-                  
-                  // Use new price if exists, otherwise keep old value
                   const newPrice = priceMap[normName] !== undefined ? priceMap[normName] : currentVal;
                   
                   newTotal += newPrice;
@@ -383,12 +753,10 @@ const Medicoes: React.FC = () => {
                   return { name, value: newPrice }; 
               });
 
-              // Apply eSocial logic if pertinent
               if (selectedCliente.envia_esoc && r.descricao?.includes('Atendimento - ') && r.valor_esoc && r.valor_esoc > 0) {
                   newTotal += (r.valor_esoc * 2);
               }
 
-              // Update in DB
               const { error } = await supabase
                   .from('financeiro_receitas')
                   .update({
@@ -401,7 +769,7 @@ const Medicoes: React.FC = () => {
           }
 
           alert(`${updatedCount} registros atualizados com sucesso!`);
-          fetchReceitasDoCliente(); // Refresh list
+          fetchReceitasDoCliente(); 
 
       } catch (err) {
           console.error("Erro ao atualizar valores em massa:", err);
@@ -426,79 +794,63 @@ const Medicoes: React.FC = () => {
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
 
-          // Use decode_range to get the boundaries of the sheet
-          const range = XLSX.utils.decode_range(worksheet['!ref'] || "A1:G2"); // Fallback if empty
+          const range = XLSX.utils.decode_range(worksheet['!ref'] || "A1:G2"); 
           
-          // Row indexes (0-based)
-          const headerRowIndex = 0; // Linha 1 do Excel
-          const valueRowIndex = 1;  // Linha 2 do Excel
+          const headerRowIndex = 0; 
+          const valueRowIndex = 1;  
 
-          // Check for hidden rows in !rows metadata
           const rowProps = worksheet['!rows'] || [];
           if ((rowProps[headerRowIndex] && rowProps[headerRowIndex].hidden) || 
               (rowProps[valueRowIndex] && rowProps[valueRowIndex].hidden)) {
               alert("A linha de cabeçalho (1) ou a linha de valores (2) está oculta. A importação foi ignorada para evitar dados incorretos.");
-              // If rows are hidden, we stop or skip. User said "não deve ler... nada que esteja ocultado".
-              // Assuming stopping is safer than partial import.
               return;
           }
 
           const colProps = worksheet['!cols'] || [];
           const newPriceMap = { ...priceMap };
 
-          // Reset values to 0 before import ("caso não exista somente ignore e adicione 0")
           EXAMS_LIST.forEach(exam => {
               const existingDbId = priceMap[exam.nome]?.dbId || null;
               newPriceMap[exam.nome] = { price: '0', dbId: existingDbId };
           });
 
-          // Iterate through columns starting from F (Index 5)
           const START_COL_INDEX = 5; 
 
           for (let C = START_COL_INDEX; C <= range.e.c; ++C) {
-              // 1. Check if Column is Hidden
               if (colProps[C] && colProps[C].hidden) {
-                  continue; // Skip hidden columns
+                  continue; 
               }
 
-              // 2. Get Header Cell (Row 1)
               const headerCellAddress = XLSX.utils.encode_cell({ c: C, r: headerRowIndex });
               const headerCell = worksheet[headerCellAddress];
 
-              if (!headerCell || !headerCell.v) continue; // Skip empty headers
+              if (!headerCell || !headerCell.v) continue; 
 
               const headerText = String(headerCell.v);
               
-              // 3. Match Header with Exams
               const matchedExam = EXAMS_LIST.find(exam => 
                   normalizeStr(exam.nome) === normalizeStr(headerText)
               );
 
               if (matchedExam) {
-                  // 4. Get Value Cell (Row 2)
                   const valueCellAddress = XLSX.utils.encode_cell({ c: C, r: valueRowIndex });
                   const valueCell = worksheet[valueCellAddress];
 
                   if (valueCell) {
-                      // 5. Check if it is a Formula
                       if (valueCell.f) {
-                          // "não deve ler formulas" -> Ignore/Treat as 0
                           continue; 
                       }
 
-                      // 6. Extract Value
                       let finalVal = 0;
                       
                       if (typeof valueCell.v === 'number') {
                           finalVal = valueCell.v;
                       } else if (typeof valueCell.v === 'string') {
-                          // Clean potential formatting like "R$ 10,00"
                           const cleanStr = valueCell.v.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
                           const parsed = parseFloat(cleanStr);
                           if (!isNaN(parsed)) finalVal = parsed;
                       }
 
-                      // Update Map
                       if (finalVal > 0) {
                           newPriceMap[matchedExam.nome].price = finalVal.toString();
                       }
@@ -522,7 +874,6 @@ const Medicoes: React.FC = () => {
   const handleDownloadExcel = () => {
       if (!selectedCliente) return;
 
-      // 1. Coletar todos os nomes de exames únicos presentes nos dados filtrados
       const allExamsSet = new Set<string>();
       
       clienteReceitas.forEach(receita => {
@@ -530,7 +881,6 @@ const Medicoes: React.FC = () => {
               receita.exames_snapshot.forEach((item: any) => {
                   let name = '';
                   if (typeof item === 'string') {
-                      // Handle potential JSON string
                       if (item.trim().startsWith('{')) {
                           try { const p = JSON.parse(item); name = p.name || p.nome || ''; } catch { name = item; }
                       } else { name = item; }
@@ -544,9 +894,7 @@ const Medicoes: React.FC = () => {
 
       const sortedExams = Array.from(allExamsSet).sort();
 
-      // 2. Construir as linhas
       const rows = clienteReceitas.map(receita => {
-          // Identificar exames desta receita específica
           const currentRevenueExams = new Set<string>();
           if (receita.exames_snapshot && Array.isArray(receita.exames_snapshot)) {
               receita.exames_snapshot.forEach((item: any) => {
@@ -569,7 +917,6 @@ const Medicoes: React.FC = () => {
               "eSocial": (receita.valor_esoc && receita.valor_esoc > 0) ? 'X' : ''
           };
 
-          // Adicionar colunas dinâmicas de exames
           sortedExams.forEach(examName => {
               rowData[examName] = currentRevenueExams.has(examName) ? 'X' : '';
           });
@@ -581,18 +928,16 @@ const Medicoes: React.FC = () => {
 
       const worksheet = XLSX.utils.json_to_sheet(rows);
       
-      // Ajuste de largura de colunas
       const wscols = [
-          { wch: 12 }, // Data
-          { wch: 35 }, // Descricao
-          { wch: 20 }, // Unidade
-          { wch: 8 },  // eSocial
-          ...sortedExams.map(() => ({ wch: 15 })), // Exames dinâmicos
-          { wch: 15 }  // Valor
+          { wch: 12 }, 
+          { wch: 35 }, 
+          { wch: 20 }, 
+          { wch: 8 },  
+          ...sortedExams.map(() => ({ wch: 15 })), 
+          { wch: 15 }  
       ];
       worksheet['!cols'] = wscols;
 
-      // STYLING LOGIC (Requires xlsx-js-style)
       const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:A1');
       for (let R = range.s.r; R <= range.e.r; ++R) {
         for (let C = range.s.c; C <= range.e.c; ++C) {
@@ -601,14 +946,12 @@ const Medicoes: React.FC = () => {
 
           const cell = worksheet[cellRef];
 
-          // Initialize style object
           if (!cell.s) cell.s = {};
 
-          // Header Row (Row 0)
           if (R === 0) {
             cell.s = {
               font: { name: 'Arial', sz: 11, bold: true, color: { rgb: "FFFFFF" } },
-              fill: { fgColor: { rgb: "04A7BD" } }, // System Primary Color
+              fill: { fgColor: { rgb: "04A7BD" } }, 
               alignment: { horizontal: "center", vertical: "center" },
               border: {
                   top: { style: "thin", color: {auto: 1} },
@@ -618,7 +961,6 @@ const Medicoes: React.FC = () => {
               }
             };
           } 
-          // Data Rows - Check for 'X' to center
           else if (cell.v === 'X') {
              cell.s = {
                 alignment: { horizontal: "center", vertical: "center" }
@@ -668,7 +1010,7 @@ const Medicoes: React.FC = () => {
         await supabase.from('preco_exames').insert(inserts);
       }
 
-      await fetchClientPrices(); // Refresh
+      await fetchClientPrices(); 
       alert('Tabela de preços salva com sucesso!');
       setIsValuesModalOpen(false);
 
@@ -682,10 +1024,7 @@ const Medicoes: React.FC = () => {
 
   const filteredExams = useMemo(() => {
     return EXAMS_LIST.filter(exam => {
-        // 1. Text Search
         const matchesSearch = exam.nome.toLowerCase().includes(searchExam.toLowerCase());
-        
-        // 2. Filter (Filled vs Empty)
         const currentPrice = priceMap[exam.nome]?.price;
         const hasPrice = currentPrice && parseFloat(currentPrice) > 0;
         
@@ -698,7 +1037,6 @@ const Medicoes: React.FC = () => {
   }, [searchExam, priceFilter, priceMap]);
 
 
-  // Actions
   const handleMarkAsPaid = async (receita: FinanceiroReceita) => {
     if (receita.status?.toLowerCase() === 'pago') return;
     try {
@@ -718,7 +1056,6 @@ const Medicoes: React.FC = () => {
     }
   };
 
-  // Toggle eSocial
   const handleToggleEsocial = async () => {
     if (!selectedCliente) return;
 
@@ -805,7 +1142,6 @@ const Medicoes: React.FC = () => {
     let initialSnapshotItems: {name: string, value: string}[] = [];
 
     if (receita.exames_snapshot && Array.isArray(receita.exames_snapshot) && receita.exames_snapshot.length > 0) {
-        // Parse raw items properly first to handle JSON strings
         const rawItems = receita.exames_snapshot.map((item: any) => {
              if (typeof item === 'string') {
                 if (item.trim().startsWith('{')) {
@@ -833,7 +1169,7 @@ const Medicoes: React.FC = () => {
                 if (prices) {
                     prices.forEach((p: any) => {
                         currentPrices[p.nome] = p.preco;
-                        currentPrices[normalizeStr(p.nome)] = p.preco; // Store normalized for safer lookup
+                        currentPrices[normalizeStr(p.nome)] = p.preco; 
                     });
                 }
             } catch (err) {
@@ -859,12 +1195,9 @@ const Medicoes: React.FC = () => {
     let baseTotal = 0;
     const esocVal = receita.valor_esoc || 0;
 
-    // CORREÇÃO: Se houver itens na lista (snapshot), o valor base DEVE ser a soma deles.
-    // Isso garante que o valor exibido bata com a lista visual.
     if (initialSnapshotItems.length > 0) {
         baseTotal = snapshotTotal;
     } else {
-        // Fallback: Se não houver itens, tenta deduzir do total salvo no banco
         baseTotal = receita.valor_total || 0;
         if (esocVal > 0) {
             baseTotal = baseTotal - (esocVal * 2);
@@ -873,7 +1206,6 @@ const Medicoes: React.FC = () => {
     }
 
     let finalEsocValue = '';
-    // CHANGE: Always prioritize client's current eSocial value if present
     if (selectedCliente && selectedCliente.valor_esoc) {
         finalEsocValue = selectedCliente.valor_esoc.toString();
     } else if (esocVal > 0) {
@@ -911,11 +1243,9 @@ const Medicoes: React.FC = () => {
       }
   };
 
-  // --- EXAM SELECTION LOGIC ---
   const handleOpenExamSelection = async () => {
       if (!selectedCliente) return;
       
-      // Fetch current prices to display in the list
       try {
           const { data: prices } = await supabase
               .from('preco_exames')
@@ -938,22 +1268,18 @@ const Medicoes: React.FC = () => {
   };
 
   const handleToggleExam = (examName: string) => {
-      // Check if already exists
       const exists = snapshotItems.find(item => item.name === examName);
       
       let newItems = [];
       if (exists) {
-          // Remove
           newItems = snapshotItems.filter(item => item.name !== examName);
       } else {
-          // Add with price
           const price = clientPrices[examName] || 0;
           newItems = [...snapshotItems, { name: examName, value: price.toString() }];
       }
       
       setSnapshotItems(newItems);
       
-      // Update Total
       const totalSum = newItems.reduce((acc, item) => {
           const v = parseFloat(item.value);
           return acc + (isNaN(v) ? 0 : v);
@@ -1109,14 +1435,14 @@ const Medicoes: React.FC = () => {
 
   const getStatusColor = (status: string | null, date: string | null) => {
     const s = status?.toLowerCase() || '';
-    if (s === 'pago') return 'text-[#149890] bg-teal-50 border-teal-100'; // Secondary Greenish
+    if (s === 'pago') return 'text-[#149890] bg-teal-50 border-teal-100'; 
     
     if (date) {
       const today = new Date().toISOString().split('T')[0];
       const dueDate = date.split('T')[0];
       if (dueDate < today) return 'text-red-600 bg-red-100 border-red-200';
     }
-    return 'text-[#04a7bd] bg-cyan-50 border-cyan-100'; // Primary Cyan
+    return 'text-[#04a7bd] bg-cyan-50 border-cyan-100'; 
   };
 
   const getMedicaoStatusInfo = (status: string | null | undefined) => {
@@ -1310,13 +1636,20 @@ const Medicoes: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
             <button 
                 onClick={handleOpenValues}
                 className="bg-[#04a7bd] hover:bg-[#038fa3] text-white px-5 py-3 rounded-full font-medium shadow-lg shadow-[#04a7bd]/20 transition-all flex items-center gap-2"
             >
                 <Tag size={20} />
                 Valores
+            </button>
+            <button 
+                onClick={handleOpenImportOld}
+                className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-5 py-3 rounded-full font-medium shadow-sm transition-all flex items-center gap-2"
+            >
+                <FileSpreadsheet size={20} />
+                Importar Medição Antiga
             </button>
             <button 
                 onClick={handleOpenNew}
@@ -1661,7 +1994,7 @@ const Medicoes: React.FC = () => {
         </div>
       </div>
 
-      {/* NEW MODAL for Adding Revenue - REDESIGNED */}
+      {/* NEW MODAL for Adding Revenue */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/10 backdrop-blur-md" onClick={() => setIsModalOpen(false)}></div>
@@ -1910,6 +2243,234 @@ const Medicoes: React.FC = () => {
                 </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* NEW: IMPORT OLD MEASUREMENT MODAL */}
+      {isImportOldModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-md" onClick={() => setIsImportOldModalOpen(false)}></div>
+          
+          <div className="glass-panel w-full max-w-5xl rounded-[32px] relative z-10 p-0 overflow-hidden bg-white/95 shadow-2xl border border-white/60 animate-[scaleIn_0.2s_ease-out] flex flex-col max-h-[90vh]">
+             {/* Header */}
+             <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-white/50 backdrop-blur-sm">
+                <div>
+                   <h3 className="text-xl font-bold text-[#050a30]">Importar Medição Antiga</h3>
+                   <p className="text-slate-500 text-sm">Visualize planilhas antigas para referência</p>
+                </div>
+                <button 
+                   onClick={() => setIsImportOldModalOpen(false)}
+                   className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors"
+                >
+                   <X size={20} />
+                </button>
+             </div>
+
+             <div className="p-8 flex flex-col h-full overflow-hidden">
+                 
+                 {/* Step 1: File Selection (Month removed) */}
+                 <div className="flex flex-col md:flex-row gap-4 mb-6 items-end">
+                     <div className="w-full flex-1">
+                         <input 
+                             type="file" 
+                             ref={oldFileInputRef}
+                             onChange={handleOldFileChange}
+                             className="hidden"
+                             accept=".xlsx, .xls"
+                         />
+                         <button 
+                             onClick={handleOldFileClick}
+                             className="w-full md:w-auto px-6 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all bg-[#050a30] text-white hover:bg-[#030720] shadow-lg"
+                         >
+                             <Upload size={16} />
+                             Selecionar Planilha
+                         </button>
+                     </div>
+                 </div>
+
+                 {/* Step 2: Visualization List */}
+                 <div className="flex-1 bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col">
+                     {importedOldData.length === 0 && importedServices.length === 0 ? (
+                         <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8">
+                             <FileSpreadsheet size={48} className="mb-4 opacity-20" />
+                             <p className="text-sm font-medium">Importe uma planilha para visualizar os dados aqui.</p>
+                         </div>
+                     ) : (
+                         <div className="flex-1 overflow-auto custom-scrollbar p-6 space-y-6">
+                             
+                             {/* Section 1: Attendances */}
+                             {importedOldData.length > 0 && (
+                                <div>
+                                    <h4 className="text-sm font-bold text-slate-500 uppercase mb-3 flex items-center gap-2">
+                                        <Stethoscope size={16} /> Atendimentos Realizados ({importedOldData.length})
+                                    </h4>
+                                    <div className="space-y-2">
+                                        {importedOldData.map((item, index) => {
+                                            const totalAttendance = item.exams.reduce((acc, ex) => acc + (ex.price || 0), 0);
+                                            return (
+                                                <div key={index} className="p-4 bg-slate-50 border border-slate-100 rounded-xl hover:shadow-md transition-shadow">
+                                                    <div className="flex flex-col md:flex-row justify-between md:items-center mb-2 gap-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-blue-600 flex items-center justify-center font-bold text-xs shrink-0">
+                                                                {index + 1}
+                                                            </div>
+                                                            <span className="font-bold text-slate-700">{item.name}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="flex items-center gap-2 text-xs text-slate-500 bg-white px-2 py-1 rounded-lg w-fit border border-slate-200">
+                                                                <Calendar size={12} />
+                                                                {item.date}
+                                                            </div>
+                                                            <span className="text-sm font-bold text-[#04a7bd] bg-cyan-50 px-3 py-1 rounded-lg border border-cyan-100">
+                                                                {formatCurrency(totalAttendance)}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {item.exams.length > 0 ? (
+                                                        <div className="flex flex-wrap gap-2 mt-2 ml-10">
+                                                            {item.exams.map((ex, i) => (
+                                                                <div key={i} className="flex flex-col items-center">
+                                                                    <span className="text-[10px] font-bold text-slate-600 bg-white px-2 py-1 rounded-md border border-slate-200 shadow-sm">
+                                                                        {ex.name}
+                                                                    </span>
+                                                                    {ex.price > 0 && (
+                                                                        <span className="text-[9px] text-[#04a7bd] font-bold mt-0.5">
+                                                                            {formatCurrency(ex.price)}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <p className="text-xs text-slate-400 italic ml-10">Nenhum exame identificado.</p>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                             )}
+
+                             {/* Section 2: SST Services */}
+                             {importedServices.length > 0 && (
+                                <div className="pt-4 border-t border-slate-100">
+                                    <h4 className="text-sm font-bold text-slate-500 uppercase mb-3 flex items-center gap-2">
+                                        <Briefcase size={16} /> Serviços de SST ({importedServices.length})
+                                    </h4>
+                                    <div className="bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-slate-100 text-slate-500 text-xs uppercase">
+                                                <tr>
+                                                    <th className="px-4 py-3 text-left font-bold">Descrição</th>
+                                                    <th className="px-4 py-3 text-right font-bold">Valor</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-200">
+                                                {importedServices.map((service, idx) => (
+                                                    <tr key={idx} className="hover:bg-white transition-colors">
+                                                        <td className="px-4 py-3 font-medium text-slate-700">{service.name}</td>
+                                                        <td className="px-4 py-3 text-right font-bold text-slate-800">{formatCurrency(service.value)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                             )}
+
+                         </div>
+                     )}
+                 </div>
+                 
+                 {/* Footer Totals & Actions */}
+                 <div className="bg-slate-900 p-6 flex flex-col gap-4 border-t border-slate-800">
+                     {(importedTotalSST > 0 || importedTotalGeneral > 0) && (
+                         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                             <div className="flex items-center gap-2 text-slate-400 text-xs uppercase font-bold">
+                                 <Hash size={14} /> Resumo Financeiro
+                             </div>
+                             <div className="flex gap-8">
+                                 {importedTotalSST > 0 && (
+                                     <div className="text-right">
+                                         <p className="text-[10px] text-slate-400 uppercase font-bold">Custo Total SST</p>
+                                         <p className="text-xl font-bold text-blue-400">{formatCurrency(importedTotalSST)}</p>
+                                     </div>
+                                 )}
+                                 {importedTotalGeneral > 0 && (
+                                     <div className="text-right">
+                                         <p className="text-[10px] text-slate-400 uppercase font-bold">Total Geral</p>
+                                         <p className="text-2xl font-bold text-white">{formatCurrency(importedTotalGeneral)}</p>
+                                     </div>
+                                 )}
+                             </div>
+                         </div>
+                     )}
+                     
+                     <div className="flex justify-end pt-4 border-t border-slate-800">
+                        <button 
+                            onClick={handleSendImportedToFinance}
+                            disabled={sendingToFinance || (importedOldData.length === 0 && importedServices.length === 0)}
+                            className="bg-[#04a7bd] hover:bg-[#038fa3] text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-[#04a7bd]/20 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {sendingToFinance ? (
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            ) : (
+                                <Send size={18} />
+                            )}
+                            Enviar para Financeiro
+                        </button>
+                     </div>
+                 </div>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM IMPORT MODAL */}
+      {showConfirmImportModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => !sendingToFinance && setShowConfirmImportModal(false)}></div>
+            <div className="bg-white w-full max-w-md rounded-3xl relative z-10 p-8 shadow-2xl animate-[scaleIn_0.2s_ease-out] border border-slate-100">
+                
+                <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center mb-4">
+                    <AlertTriangle size={24} />
+                </div>
+
+                <h3 className="text-xl font-bold text-slate-800 mb-2">Confirmar Importação</h3>
+                <p className="text-slate-500 text-sm mb-6">
+                    Você está prestes a gerar <strong>{importedOldData.length} atendimentos</strong> e <strong>{importedServices.length} serviços</strong> no financeiro para <strong>{selectedCliente?.nome_fantasia}</strong>.
+                    <br/><br/>
+                    Isso criará receitas pendentes. Deseja continuar?
+                </p>
+
+                <div className="flex gap-3">
+                    <button 
+                        onClick={() => setShowConfirmImportModal(false)}
+                        disabled={sendingToFinance}
+                        className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-colors border border-slate-200"
+                    >
+                        Cancelar
+                    </button>
+                    <button 
+                        onClick={confirmImport}
+                        disabled={sendingToFinance}
+                        className="flex-1 py-3 bg-[#04a7bd] text-white font-bold rounded-xl hover:bg-[#038fa3] transition-colors shadow-lg flex items-center justify-center gap-2"
+                    >
+                        {sendingToFinance ? (
+                            <>
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                Processando...
+                            </>
+                        ) : (
+                            <>
+                                <Check size={18} />
+                                Confirmar
+                            </>
+                        )}
+                    </button>
+                </div>
+            </div>
         </div>
       )}
 
