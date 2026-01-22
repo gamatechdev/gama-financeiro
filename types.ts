@@ -65,7 +65,7 @@ export interface FinanceiroDespesa {
   created_at: string;
   desc: string | null;
   fornecedor: string | null;
-  categoria: string | null; // Agora é texto
+  categoria: string | null; // Agora é texto (Setor)
   forma_pagamento: string | null;
   centro_custos: string | null;
   responsavel: string | null;
@@ -75,6 +75,7 @@ export interface FinanceiroDespesa {
   nome: string | null;
   qnt_parcela: number | null;
   recorrente: boolean | null;
+  tipo: string; // Campo novo para Classificação (CF, CV, etc.)
 }
 
 export interface User {

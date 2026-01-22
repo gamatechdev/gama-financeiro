@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { Cliente, FinanceiroReceita } from '../types';
 import { 
   Building2, Search, ChevronRight, ArrowLeft, Calendar, 
-  CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit, Stethoscope, CloudUpload, FileText, Tag, Save, DollarSign, Upload, RefreshCw, Grid, List, Trash2, Calculator, Info, FileSpreadsheet, Briefcase, Hash, Send, AlertTriangle
+  CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit, Stethoscope, CloudUpload, FileText, Tag, Save, DollarSign, Upload, RefreshCw, Grid, List, Trash2, Calculator, Info, FileSpreadsheet, Briefcase, Hash, Send, AlertTriangle, ArrowRight
 } from 'lucide-react';
 import * as XLSXPkg from 'xlsx-js-style';
 import PrecoExames from './PrecoExames';

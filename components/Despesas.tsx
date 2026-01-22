@@ -56,7 +56,9 @@ const Despesas: React.FC = () => {
   
   const [monthFilter, setMonthFilter] = useState(() => {
     const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth() - 0, 1).toISOString().slice(0, 7);
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
   });
   
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
@@ -69,7 +71,7 @@ const Despesas: React.FC = () => {
     desc: '',
     fornecedor: '',
     categoria: '', // Agora visualmente "Setor"
-    nova_categoria: '', // Novo campo: Investimento, Custo fixo...
+    nova_categoria: '', // Mapeia para o campo 'tipo' do banco
     gerencia_id: '', // Novo campo: ID da tabela gerencias
     forma_pagamento: '',
     centro_custos: '',
@@ -81,37 +83,124 @@ const Despesas: React.FC = () => {
     recorrente: false
   });
 
-  const fetchBaseData = async () => {
-    try {
-      setLoading(true);
-      const { data: despesasData, error: despesasError } = await supabase
-        .from('financeiro_despesas')
-        .select('*')
-        .order('data_projetada', { ascending: true });
-
-      if (despesasError) throw despesasError;
-      setDespesas(despesasData as any || []);
-      
-      // Fetch Gerencias
-      const { data: gerenciasData, error: gerenciasError } = await supabase
-        .from('gerencias')
-        .select('id, descricao')
-        .order('descricao');
-      
-      if (!gerenciasError && gerenciasData) {
-        setGerenciasList(gerenciasData);
-      }
-
-    } catch (error: any) {
-      console.error('Error fetching data:', error.message || JSON.stringify(error));
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Fetch Gerencias only once
   useEffect(() => {
-    fetchBaseData();
+    const fetchGerencias = async () => {
+      try {
+        const { data: gerenciasData, error: gerenciasError } = await supabase
+          .from('gerencias')
+          .select('id, descricao')
+          .order('descricao');
+        
+        if (!gerenciasError && gerenciasData) {
+          setGerenciasList(gerenciasData);
+        }
+      } catch (e) {
+        console.error("Erro ao buscar gerencias:", e);
+      }
+    };
+    fetchGerencias();
   }, []);
+
+  // MAIN FETCH LOGIC - Runs on monthFilter change
+  useEffect(() => {
+    const fetchDespesas = async () => {
+        setLoading(true);
+        console.group(`--- FETCH REQUISITION: ${monthFilter} ---`);
+        try {
+            const [year, month] = monthFilter.split('-').map(Number);
+            // Calculate start and end date for the selected month
+            // Note: month in Date constructor is 0-indexed (0=Jan, 1=Feb)
+            const startDate = new Date(year, month - 1, 1).toISOString().split('T')[0];
+            // Day 0 of next month is the last day of current month
+            const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+
+            console.log(`Period: ${startDate} to ${endDate}`);
+
+            const now = new Date();
+            const currentRealMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            const isCurrentMonthView = monthFilter === currentRealMonth;
+
+            console.log(`Is Current Month View? ${isCurrentMonthView}`);
+
+            if (isCurrentMonthView) {
+                // Scenario A: Current Month
+                // We need 1. Items in this month AND 2. Overdue items from previous months
+                
+                // Request 1: This Month
+                const reqMonth = supabase
+                    .from('financeiro_despesas')
+                    .select('*')
+                    .gte('data_projetada', startDate)
+                    .lte('data_projetada', endDate)
+                    .range(0, 2000); // Batch size
+
+                // Request 2: Overdue (Before start date AND Not Paid)
+                const reqOverdue = supabase
+                    .from('financeiro_despesas')
+                    .select('*')
+                    .lt('data_projetada', startDate)
+                    .neq('status', 'Pago')
+                    .range(0, 2000); // Batch size
+
+                const [resMonth, resOverdue] = await Promise.all([reqMonth, reqOverdue]);
+
+                if (resMonth.error) throw resMonth.error;
+                if (resOverdue.error) throw resOverdue.error;
+
+                const monthData = resMonth.data || [];
+                const overdueData = resOverdue.data || [];
+
+                console.log(`Fetched Month Data: ${monthData.length}`);
+                console.log(`Fetched Overdue Data: ${overdueData.length}`);
+
+                // Merge and deduplicate
+                const combined = [...overdueData, ...monthData];
+                const uniqueMap = new Map();
+                combined.forEach(item => uniqueMap.set(item.id, item));
+                const uniqueList = Array.from(uniqueMap.values());
+
+                // Sort by date ascending
+                uniqueList.sort((a: FinanceiroDespesa, b: FinanceiroDespesa) => {
+                    const dateA = a.data_projetada || '';
+                    const dateB = b.data_projetada || '';
+                    return dateA.localeCompare(dateB);
+                });
+
+                setDespesas(uniqueList);
+
+            } else {
+                // Scenario B: Historic or Future Month
+                // Strict filtering: Only items within the month range
+                const { data, error } = await supabase
+                    .from('financeiro_despesas')
+                    .select('*')
+                    .gte('data_projetada', startDate)
+                    .lte('data_projetada', endDate)
+                    .order('data_projetada', { ascending: true })
+                    .range(0, 2000); // Batch size
+
+                if (error) throw error;
+                
+                console.log(`Fetched Strict Data: ${data?.length || 0}`);
+                if (data && data.length > 0) {
+                    console.log("Sample Data ID:", data[0].id, "Date:", data[0].data_projetada);
+                }
+
+                setDespesas(data || []);
+            }
+
+        } catch (err: any) {
+            console.error("Erro ao buscar despesas (Fetch Requisition):", err);
+            alert("Erro ao carregar despesas. Verifique sua conexão.");
+        } finally {
+            console.groupEnd();
+            setLoading(false);
+        }
+    };
+
+    fetchDespesas();
+  }, [monthFilter]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -191,35 +280,25 @@ const Despesas: React.FC = () => {
   const handleMonthChange = (step: number) => {
     if (!monthFilter) return;
     const [year, month] = monthFilter.split('-').map(Number);
+    // Use local time construction to avoid UTC shifts
     const date = new Date(year, month - 1 + step, 1);
-    const newStr = date.toISOString().slice(0, 7);
-    setMonthFilter(newStr);
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    setMonthFilter(`${y}-${m}`);
   };
 
   const selectMonthFromCalendar = (monthIndex: number) => {
-    const newMonth = new Date(calendarYear, monthIndex, 1);
-    setMonthFilter(newMonth.toISOString().slice(0, 7));
+    // Use local time construction to avoid UTC shifts
+    const date = new Date(calendarYear, monthIndex, 1);
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    setMonthFilter(`${y}-${m}`);
     setShowCalendar(false);
   };
 
-  const filterByMonth = (d: FinanceiroDespesa) => {
-    if (!d.data_projetada) return false;
-    const dDate = d.data_projetada.slice(0, 7);
-    
-    if (dDate === monthFilter) return true;
-    if (d.recorrente && dDate <= monthFilter) return true;
-
-    return false;
-  };
-
-  const kpiDespesas = useMemo(() => {
-    return despesas.filter(d => filterByMonth(d));
-  }, [despesas, monthFilter]);
-
+  // Redundant filter (data already filtered by fetch), keeping for search/status
   const filteredDespesas = useMemo(() => {
     return despesas.filter(d => {
-      if (!filterByMonth(d)) return false;
-
       const searchLower = searchTerm.toLowerCase();
       const matchesSearch = 
         (d.nome?.toLowerCase() || '').includes(searchLower) ||
@@ -232,7 +311,12 @@ const Despesas: React.FC = () => {
 
       return matchesSearch && matchesStatus;
     });
-  }, [despesas, monthFilter, searchTerm, statusFilter]);
+  }, [despesas, searchTerm, statusFilter]);
+
+  const kpiDespesas = useMemo(() => {
+      // For KPIs we use the whole fetched dataset (which represents the view context)
+      return despesas;
+  }, [despesas]);
 
   const { specialProviderCards, paymentGroupCards, regularDespesas } = useMemo(() => {
     const specialMap: Record<string, ProviderGroup> = {};
@@ -329,7 +413,7 @@ const Despesas: React.FC = () => {
         desc: '',
         fornecedor: '',
         categoria: '',
-        nova_categoria: '',
+        nova_categoria: '', // Maps to 'tipo'
         gerencia_id: '',
         forma_pagamento: '',
         centro_custos: '',
@@ -361,7 +445,7 @@ const Despesas: React.FC = () => {
         desc: despesa.desc || '',
         fornecedor: despesa.fornecedor || '',
         categoria: despesa.categoria || '',
-        nova_categoria: '', 
+        nova_categoria: despesa.tipo || '', // Mapeia o 'tipo' para a UI
         gerencia_id: gId, 
         forma_pagamento: despesa.forma_pagamento || '',
         centro_custos: despesa.centro_custos || '',
@@ -558,6 +642,9 @@ const Despesas: React.FC = () => {
           // If splitting, we override the centro_custos with the gerencia name so the user sees it in the list
           const targetCentroCustos = specificGerenciaName || formData.centro_custos;
 
+          // Default Tipo is 'CF' if not provided
+          const tipoFinanceiro = formData.nova_categoria || 'CF';
+
           if (formData.data_projetada && numInstallments > 1) {
              const [y, m, d] = formData.data_projetada.split('-').map(Number);
              
@@ -580,7 +667,8 @@ const Despesas: React.FC = () => {
                  data_projetada: dueDateStr,
                  status: formData.status,
                  qnt_parcela: numInstallments,
-                 recorrente: formData.recorrente
+                 recorrente: formData.recorrente,
+                 tipo: tipoFinanceiro
                };
                currentPayloads.push(p);
                
@@ -607,7 +695,8 @@ const Despesas: React.FC = () => {
               data_projetada: formData.data_projetada || null,
               status: formData.status,
               qnt_parcela: 1,
-              recorrente: formData.recorrente
+              recorrente: formData.recorrente,
+              tipo: tipoFinanceiro
             };
             currentPayloads.push(p);
 
@@ -643,7 +732,8 @@ const Despesas: React.FC = () => {
             valor: totalValue,
             data_projetada: formData.data_projetada || null,
             qnt_parcela: numInstallments,
-            recorrente: formData.recorrente
+            recorrente: formData.recorrente,
+            tipo: formData.nova_categoria || 'CF'
          };
 
          const { error } = await supabase
@@ -653,12 +743,22 @@ const Despesas: React.FC = () => {
 
          if (error) throw error;
 
+         // Refresh current view (update state locally to avoid refetch if possible, or trigger refetch)
+         // Trigger refetch by re-running the effect (simplest way is to toggle something or just update the list)
+         // Since we are inside Submit, updating 'despesas' state locally is complex with sorting/groups. 
+         // Better to re-trigger the fetch via a signal or re-calling logic.
+         // We will force reload by calling the effect dependency indirectly or moving logic out.
+         // Easier: Just update state manually for immediate feedback.
+         
+         setDespesas(prev => prev.map(d => d.id === editingId ? { ...d, ...payload } as any : d));
+
       } else {
         // Insert Mode OR Edit-with-Split Mode
         if (editingId && isSplitMode) {
             // If we are splitting an existing record, we delete the original and recreate as multiple records.
             const { error: delError } = await supabase.from('financeiro_despesas').delete().eq('id', editingId);
             if (delError) throw delError;
+            setDespesas(prev => prev.filter(d => d.id !== editingId));
         }
         
         if (isSplitMode) {
@@ -696,8 +796,20 @@ const Despesas: React.FC = () => {
              payloads.push(...generatePayloads(totalValue, formData.categoria, undefined, singleGerenciaName));
         }
 
-        const { error } = await supabase.from('financeiro_despesas').insert(payloads);
+        const { data: insertedData, error } = await supabase.from('financeiro_despesas').insert(payloads).select();
         if (error) throw error;
+
+        // Add to local state to avoid full refetch
+        if (insertedData) {
+            const newItems = insertedData as any[];
+            // Filter to see if they belong to current view
+            // Simple check: if month matches
+            const currentMonthPrefix = monthFilter;
+            const relevantItems = newItems.filter(i => i.data_projetada && i.data_projetada.startsWith(currentMonthPrefix));
+            if (relevantItems.length > 0) {
+                setDespesas(prev => [...prev, ...relevantItems]);
+            }
+        }
 
         // Process Gerencia Meta Updates
         for (const update of gerenciaUpdates) {
@@ -706,7 +818,12 @@ const Despesas: React.FC = () => {
       }
       
       setIsModalOpen(false);
-      fetchBaseData();
+      // Ideally we should refetch to ensure sorting and derived data is perfect, 
+      // but modifying the monthFilter to itself triggers the useEffect.
+      // A trick to force reload:
+      const current = monthFilter;
+      setMonthFilter(''); 
+      setTimeout(() => setMonthFilter(current), 10);
 
     } catch (error: any) {
       console.error('Error submitting:', error);
@@ -1106,6 +1223,11 @@ const Despesas: React.FC = () => {
                      {despesa.categoria && (
                         <p className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 truncate">
                            {despesa.categoria}
+                        </p>
+                     )}
+                     {despesa.tipo && (
+                        <p className="text-xs px-2 py-0.5 rounded-md bg-blue-50 text-blue-600 truncate border border-blue-100">
+                           {despesa.tipo}
                         </p>
                      )}
                   </div>
@@ -1560,7 +1682,7 @@ const Despesas: React.FC = () => {
                                 </div>
                             )}
 
-                            {/* Categoria Financeira (Meta) */}
+                            {/* Categoria Financeira (Tipo) */}
                             <div className="pt-2 border-t border-slate-100">
                                 <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Categoria Financeira</label>
                                 <div className="relative">
@@ -1575,6 +1697,7 @@ const Despesas: React.FC = () => {
                                         <option value="Custo variavel">Custo variavel</option>
                                         <option value="Despesa fixa">Despesa fixa</option>
                                         <option value="Despesa variavel">Despesa variavel</option>
+                                        <option value="CF">CF (Padrão)</option>
                                     </select>
                                     <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
                                 </div>
