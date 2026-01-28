@@ -470,21 +470,21 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
                             const val = priceMap[exam.nome]?.price || '';
                             const hasDb = !!priceMap[exam.nome]?.dbId;
                             return (
-                                <div key={exam.id} className={`p-4 rounded-xl border flex items-center justify-between ${val ? 'bg-cyan-50/30 border-cyan-100' : 'bg-white border-slate-100'}`}>
-                                    <div className="flex items-center gap-3">
-                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${hasDb ? 'bg-teal-50 text-teal-600' : 'bg-slate-100 text-slate-400'}`}>
+                                <div key={exam.id} className={`p-4 rounded-xl border flex items-center justify-between gap-3 ${val ? 'bg-cyan-50/30 border-cyan-100' : 'bg-white border-slate-100'}`}>
+                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${hasDb ? 'bg-teal-50 text-teal-600' : 'bg-slate-100 text-slate-400'}`}>
                                             <Stethoscope size={14} />
                                         </div>
-                                        <span className="text-sm font-bold text-slate-700 max-w-[150px] truncate" title={exam.nome}>{exam.nome}</span>
+                                        <span className="text-sm font-bold text-slate-700 leading-tight break-words">{exam.nome}</span>
                                     </div>
-                                    <div className="relative w-32">
+                                    <div className="relative w-28 shrink-0 z-10">
                                         <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">R$</span>
                                         <input 
                                             type="number" 
                                             step="0.01"
                                             value={val}
                                             onChange={(e) => handlePriceChange(exam.nome, e.target.value)}
-                                            className="w-full pl-6 pr-2 py-1.5 rounded-lg border border-slate-200 text-right text-sm font-bold focus:border-[#04a7bd] outline-none bg-white"
+                                            className="w-full pl-7 pr-2 py-1.5 rounded-lg border border-slate-200 text-right text-sm font-bold focus:border-[#04a7bd] outline-none bg-white shadow-sm"
                                             placeholder="0.00"
                                         />
                                     </div>
