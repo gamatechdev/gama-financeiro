@@ -61,6 +61,9 @@ const Despesas: React.FC = () => {
     return `${y}-${m}`;
   });
   
+  // Refresh trigger to force re-fetch without changing filters
+  const [refreshKey, setRefreshKey] = useState(0);
+  
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -102,13 +105,26 @@ const Despesas: React.FC = () => {
     fetchGerencias();
   }, []);
 
-  // MAIN FETCH LOGIC - Runs on monthFilter change
+  // MAIN FETCH LOGIC - Runs on monthFilter change or refreshKey
   useEffect(() => {
     const fetchDespesas = async () => {
+        // Validate monthFilter format (YYYY-MM) to prevent Date errors
+        if (!monthFilter || !/^\d{4}-\d{2}$/.test(monthFilter)) {
+            console.warn("Filtro de mês inválido ou vazio, ignorando fetch:", monthFilter);
+            setLoading(false);
+            return;
+        }
+
         setLoading(true);
-        console.group(`--- FETCH REQUISITION: ${monthFilter} ---`);
+        console.group(`--- FETCH REQUISITION: ${monthFilter} (v${refreshKey}) ---`);
         try {
             const [year, month] = monthFilter.split('-').map(Number);
+            
+            // Safety check for numbers
+            if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
+                 throw new Error("Data inválida para filtro");
+            }
+
             // Calculate start and end date for the selected month
             // Note: month in Date constructor is 0-indexed (0=Jan, 1=Feb)
             const startDate = new Date(year, month - 1, 1).toISOString().split('T')[0];
@@ -192,7 +208,8 @@ const Despesas: React.FC = () => {
 
         } catch (err: any) {
             console.error("Erro ao buscar despesas (Fetch Requisition):", err);
-            alert("Erro ao carregar despesas. Verifique sua conexão.");
+            // alert("Erro ao carregar despesas. Verifique sua conexão."); 
+            // Silent failure is often better than alerting on every mounting error if it's transient
         } finally {
             console.groupEnd();
             setLoading(false);
@@ -200,7 +217,7 @@ const Despesas: React.FC = () => {
     };
 
     fetchDespesas();
-  }, [monthFilter]);
+  }, [monthFilter, refreshKey]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -216,7 +233,11 @@ const Despesas: React.FC = () => {
 
   useEffect(() => {
     if (monthFilter) {
-      setCalendarYear(parseInt(monthFilter.split('-')[0]));
+      const parts = monthFilter.split('-');
+      if (parts.length === 2) {
+          const year = parseInt(parts[0]);
+          if (!isNaN(year)) setCalendarYear(year);
+      }
     }
   }, [monthFilter]);
 
@@ -743,19 +764,12 @@ const Despesas: React.FC = () => {
 
          if (error) throw error;
 
-         // Refresh current view (update state locally to avoid refetch if possible, or trigger refetch)
-         // Trigger refetch by re-running the effect (simplest way is to toggle something or just update the list)
-         // Since we are inside Submit, updating 'despesas' state locally is complex with sorting/groups. 
-         // Better to re-trigger the fetch via a signal or re-calling logic.
-         // We will force reload by calling the effect dependency indirectly or moving logic out.
-         // Easier: Just update state manually for immediate feedback.
-         
+         // Manual local update to feel fast
          setDespesas(prev => prev.map(d => d.id === editingId ? { ...d, ...payload } as any : d));
 
       } else {
         // Insert Mode OR Edit-with-Split Mode
         if (editingId && isSplitMode) {
-            // If we are splitting an existing record, we delete the original and recreate as multiple records.
             const { error: delError } = await supabase.from('financeiro_despesas').delete().eq('id', editingId);
             if (delError) throw delError;
             setDespesas(prev => prev.filter(d => d.id !== editingId));
@@ -768,25 +782,19 @@ const Despesas: React.FC = () => {
                  return;
              }
 
-             // Iterate over gerencias to find which ones have percentage assigned
              gerenciasList.forEach(gerencia => {
                 const perc = parseFloat(splitPercentages[gerencia.id.toString()] || '0');
                 if (perc > 0) {
                     const splitVal = totalValue * (perc / 100);
-                    // Generate payload for this specific Gerencia
-                    // We use the same 'categoria' (Setor) for all, but different Gerencia/Cost Center
                     payloads.push(...generatePayloads(splitVal, formData.categoria, gerencia.id, gerencia.descricao));
                 }
              });
              
              if (payloads.length === 0) {
-                 // Fallback if something went wrong
                 payloads.push(...generatePayloads(totalValue, formData.categoria));
              }
 
         } else {
-             // Fallback for Insert without split
-             // Resolve single gerencia name
              let singleGerenciaName = formData.centro_custos;
              if (formData.gerencia_id) {
                  const g = gerenciasList.find(x => x.id.toString() === formData.gerencia_id);
@@ -799,18 +807,6 @@ const Despesas: React.FC = () => {
         const { data: insertedData, error } = await supabase.from('financeiro_despesas').insert(payloads).select();
         if (error) throw error;
 
-        // Add to local state to avoid full refetch
-        if (insertedData) {
-            const newItems = insertedData as any[];
-            // Filter to see if they belong to current view
-            // Simple check: if month matches
-            const currentMonthPrefix = monthFilter;
-            const relevantItems = newItems.filter(i => i.data_projetada && i.data_projetada.startsWith(currentMonthPrefix));
-            if (relevantItems.length > 0) {
-                setDespesas(prev => [...prev, ...relevantItems]);
-            }
-        }
-
         // Process Gerencia Meta Updates
         for (const update of gerenciaUpdates) {
             await updateGerenciaMeta(update.gerenciaId, update.categoria, update.valor, update.date);
@@ -818,12 +814,9 @@ const Despesas: React.FC = () => {
       }
       
       setIsModalOpen(false);
-      // Ideally we should refetch to ensure sorting and derived data is perfect, 
-      // but modifying the monthFilter to itself triggers the useEffect.
-      // A trick to force reload:
-      const current = monthFilter;
-      setMonthFilter(''); 
-      setTimeout(() => setMonthFilter(current), 10);
+      
+      // Force refresh using key instead of toggling month string
+      setRefreshKey(prev => prev + 1);
 
     } catch (error: any) {
       console.error('Error submitting:', error);
@@ -1454,7 +1447,10 @@ const Despesas: React.FC = () => {
                             if (newValue) {
                                 setFormData(prev => ({ ...prev, nome: 'PAGAMENTO' }));
                             } else {
-                                if (formData.nome === 'PAGAMENTO') setFormData(prev => ({ ...prev, nome: '' }));
+                                // Only clear if it was exactly PAGAMENTO, otherwise leave user's custom text
+                                if (formData.nome === 'PAGAMENTO') {
+                                    setFormData(prev => ({ ...prev, nome: '' }));
+                                }
                             }
                         }}>
                             <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${isCollaboratorPayment ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-indigo-200'}`}>

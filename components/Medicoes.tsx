@@ -2553,7 +2553,7 @@ const PrecoExamesModal: React.FC<{onClose: () => void, clientId: string}> = ({ o
                      </button>
                  </div>
                  <div className="flex-1 overflow-y-auto p-0">
-                     <PrecoExamesInternal /> 
+                     <PrecoExamesInternal initialClientId={clientId} /> 
                  </div>
             </div>
         </div>

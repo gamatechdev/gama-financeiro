@@ -2,8 +2,11 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { Cliente } from '../types';
 import { 
-  Search, Save, Building2, Stethoscope, ChevronDown 
+  Search, Save, Building2, Stethoscope, ChevronDown, Upload
 } from 'lucide-react';
+import * as XLSXPkg from 'xlsx-js-style';
+
+const XLSX = (XLSXPkg as any).default || XLSXPkg;
 
 const EXAMS_LIST = [
   {"idx":0,"id":447,"nome":"Avaliação Clínica"},
@@ -58,7 +61,11 @@ const EXAMS_LIST = [
   {"idx":49,"id":496,"nome":"Exame Toxicológico Urina"}
 ];
 
-const PrecoExames: React.FC = () => {
+interface PrecoExamesProps {
+  initialClientId?: string;
+}
+
+const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [selectedClienteId, setSelectedClienteId] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -67,10 +74,17 @@ const PrecoExames: React.FC = () => {
   const [companySearch, setCompanySearch] = useState('');
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [priceMap, setPriceMap] = useState<Record<string, { price: string, dbId: number | null }>>({});
   
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (initialClientId) {
+      setSelectedClienteId(initialClientId);
+    }
+  }, [initialClientId]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -146,6 +160,101 @@ const PrecoExames: React.FC = () => {
     
     fetchPrices();
   }, [selectedClienteId]);
+
+  const normalizeStr = (str: string) => {
+      return str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  };
+
+  const handleImportExcelClick = () => {
+      fileInputRef.current?.click();
+  };
+
+  const handleExcelFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      try {
+          const data = await file.arrayBuffer();
+          const workbook = XLSX.read(data);
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+
+          const range = XLSX.utils.decode_range(worksheet['!ref'] || "A1:G2"); 
+          
+          const headerRowIndex = 0; 
+          const valueRowIndex = 1;  
+
+          const rowProps = worksheet['!rows'] || [];
+          if ((rowProps[headerRowIndex] && rowProps[headerRowIndex].hidden) || 
+              (rowProps[valueRowIndex] && rowProps[valueRowIndex].hidden)) {
+              alert("A linha de cabeçalho (1) ou a linha de valores (2) está oculta. A importação foi ignorada para evitar dados incorretos.");
+              return;
+          }
+
+          const colProps = worksheet['!cols'] || [];
+          const newPriceMap = { ...priceMap };
+
+          EXAMS_LIST.forEach(exam => {
+              const existingDbId = priceMap[exam.nome]?.dbId || null;
+              newPriceMap[exam.nome] = { price: '0', dbId: existingDbId };
+          });
+
+          const START_COL_INDEX = 5; 
+
+          for (let C = START_COL_INDEX; C <= range.e.c; ++C) {
+              if (colProps[C] && colProps[C].hidden) {
+                  continue; 
+              }
+
+              const headerCellAddress = XLSX.utils.encode_cell({ c: C, r: headerRowIndex });
+              const headerCell = worksheet[headerCellAddress];
+
+              if (!headerCell || !headerCell.v) continue; 
+
+              const headerText = String(headerCell.v);
+              
+              const matchedExam = EXAMS_LIST.find(exam => 
+                  normalizeStr(exam.nome) === normalizeStr(headerText)
+              );
+
+              if (matchedExam) {
+                  const valueCellAddress = XLSX.utils.encode_cell({ c: C, r: valueRowIndex });
+                  const valueCell = worksheet[valueCellAddress];
+
+                  if (valueCell) {
+                      if (valueCell.f) {
+                          continue; 
+                      }
+
+                      let finalVal = 0;
+                      
+                      if (typeof valueCell.v === 'number') {
+                          finalVal = valueCell.v;
+                      } else if (typeof valueCell.v === 'string') {
+                          const cleanStr = valueCell.v.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
+                          const parsed = parseFloat(cleanStr);
+                          if (!isNaN(parsed)) finalVal = parsed;
+                      }
+
+                      if (finalVal > 0) {
+                          newPriceMap[matchedExam.nome].price = finalVal.toString();
+                      }
+                  }
+              }
+          }
+
+          setPriceMap(newPriceMap);
+          alert("Importação realizada com sucesso! Verifique os valores e clique em Salvar.");
+
+      } catch (err) {
+          console.error("Erro ao importar Excel:", err);
+          alert("Erro ao processar o arquivo Excel. Verifique se o formato está correto (Linha 1: Cabeçalho, Linha 2: Valores, a partir da coluna F).");
+      } finally {
+          if (fileInputRef.current) {
+              fileInputRef.current.value = '';
+          }
+      }
+  };
 
   const handleSave = async () => {
      if (!selectedClienteId) return;
@@ -267,8 +376,8 @@ const PrecoExames: React.FC = () => {
 
         {selectedClienteId && (
             <>
-                <div className="flex justify-between items-center mb-4 gap-4">
-                    <div className="relative flex-1">
+                <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+                    <div className="relative flex-1 w-full">
                         <input 
                             type="text" 
                             placeholder="Buscar exame..." 
@@ -278,20 +387,36 @@ const PrecoExames: React.FC = () => {
                         />
                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     </div>
-                    <button 
-                        onClick={handleSave}
-                        disabled={saving}
-                        className="bg-[#04a7bd] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#038fa3] transition-colors shadow-lg shadow-cyan-500/20 flex items-center gap-2"
-                    >
-                        <Save size={18} />
-                        {saving ? 'Salvando...' : 'Salvar Alterações'}
-                    </button>
+                    <div className="flex gap-2 w-full md:w-auto">
+                        <input 
+                            type="file" 
+                            ref={fileInputRef}
+                            onChange={handleExcelFileChange}
+                            className="hidden"
+                            accept=".xlsx, .xls"
+                        />
+                        <button 
+                            onClick={handleImportExcelClick}
+                            className="bg-white border border-slate-200 text-slate-700 px-4 py-3 rounded-xl font-bold hover:bg-slate-50 transition-colors flex items-center gap-2 flex-1 md:flex-none justify-center"
+                        >
+                            <Upload size={18} />
+                            <span className="hidden sm:inline">Importar Excel</span>
+                        </button>
+                        <button 
+                            onClick={handleSave}
+                            disabled={saving}
+                            className="bg-[#04a7bd] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#038fa3] transition-colors shadow-lg shadow-cyan-500/20 flex items-center gap-2 flex-1 md:flex-none justify-center"
+                        >
+                            <Save size={18} />
+                            {saving ? 'Salvando...' : 'Salvar'}
+                        </button>
+                    </div>
                 </div>
 
                 {loading ? (
                     <div className="py-10 text-center text-slate-400">Carregando preços...</div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
                         {filteredExams.map((exam) => {
                             const val = priceMap[exam.nome]?.price || '';
                             const hasDb = !!priceMap[exam.nome]?.dbId;
@@ -310,7 +435,7 @@ const PrecoExames: React.FC = () => {
                                             step="0.01"
                                             value={val}
                                             onChange={(e) => handlePriceChange(exam.nome, e.target.value)}
-                                            className="w-full pl-6 pr-2 py-1.5 rounded-lg border border-slate-200 text-right text-sm font-bold focus:border-[#04a7bd] outline-none"
+                                            className="w-full pl-6 pr-2 py-1.5 rounded-lg border border-slate-200 text-right text-sm font-bold focus:border-[#04a7bd] outline-none bg-white"
                                             placeholder="0.00"
                                         />
                                     </div>
