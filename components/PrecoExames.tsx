@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { Cliente } from '../types';
 import { 
-  Search, Save, Building2, Stethoscope, ChevronDown, Upload
+  Search, Save, Building2, Stethoscope, ChevronDown, Upload, Filter, CheckCircle, Circle, AlertCircle
 } from 'lucide-react';
 import * as XLSXPkg from 'xlsx-js-style';
 
@@ -70,6 +70,7 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
   const [selectedClienteId, setSelectedClienteId] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [searchExam, setSearchExam] = useState('');
+  const [filterType, setFilterType] = useState<'all' | 'filled' | 'empty'>('all');
   
   const [companySearch, setCompanySearch] = useState('');
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
@@ -325,9 +326,33 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
       }));
   };
 
+  const counts = useMemo(() => {
+      let filled = 0;
+      let empty = 0;
+      
+      EXAMS_LIST.forEach(exam => {
+          const valStr = priceMap[exam.nome]?.price;
+          const val = valStr ? parseFloat(valStr.replace(',', '.')) : 0;
+          if (val > 0) filled++;
+          else empty++;
+      });
+
+      return { filled, empty, all: EXAMS_LIST.length };
+  }, [priceMap]);
+
   const filteredExams = useMemo(() => {
-     return EXAMS_LIST.filter(e => e.nome.toLowerCase().includes(searchExam.toLowerCase()));
-  }, [searchExam]);
+     return EXAMS_LIST.filter(e => {
+         const matchesSearch = e.nome.toLowerCase().includes(searchExam.toLowerCase());
+         const valStr = priceMap[e.nome]?.price;
+         const val = valStr ? parseFloat(valStr.replace(',', '.')) : 0;
+         
+         let matchesFilter = true;
+         if (filterType === 'filled') matchesFilter = val > 0;
+         if (filterType === 'empty') matchesFilter = !val || val === 0;
+
+         return matchesSearch && matchesFilter;
+     });
+  }, [searchExam, filterType, priceMap]);
 
   const selectedClientName = clientes.find(c => c.id === selectedClienteId)?.nome_fantasia || 'Selecione...';
 
@@ -376,39 +401,63 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
 
         {selectedClienteId && (
             <>
-                <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
-                    <div className="relative flex-1 w-full">
-                        <input 
-                            type="text" 
-                            placeholder="Buscar exame..." 
-                            value={searchExam}
-                            onChange={(e) => setSearchExam(e.target.value)}
-                            className="w-full bg-white border border-slate-200 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-[#04a7bd]"
-                        />
-                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <div className="flex flex-col gap-4 mb-4">
+                    <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                        <div className="relative flex-1 w-full">
+                            <input 
+                                type="text" 
+                                placeholder="Buscar exame..." 
+                                value={searchExam}
+                                onChange={(e) => setSearchExam(e.target.value)}
+                                className="w-full bg-white border border-slate-200 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-[#04a7bd]"
+                            />
+                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        </div>
+                        <div className="flex gap-2 w-full md:w-auto">
+                            <input 
+                                type="file" 
+                                ref={fileInputRef}
+                                onChange={handleExcelFileChange}
+                                className="hidden"
+                                accept=".xlsx, .xls"
+                            />
+                            <button 
+                                onClick={handleImportExcelClick}
+                                className="bg-white border border-slate-200 text-slate-700 px-4 py-3 rounded-xl font-bold hover:bg-slate-50 transition-colors flex items-center gap-2 flex-1 md:flex-none justify-center"
+                            >
+                                <Upload size={18} />
+                                <span className="hidden sm:inline">Importar Excel</span>
+                            </button>
+                            <button 
+                                onClick={handleSave}
+                                disabled={saving}
+                                className="bg-[#04a7bd] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#038fa3] transition-colors shadow-lg shadow-cyan-500/20 flex items-center gap-2 flex-1 md:flex-none justify-center"
+                            >
+                                <Save size={18} />
+                                {saving ? 'Salvando...' : 'Salvar'}
+                            </button>
+                        </div>
                     </div>
-                    <div className="flex gap-2 w-full md:w-auto">
-                        <input 
-                            type="file" 
-                            ref={fileInputRef}
-                            onChange={handleExcelFileChange}
-                            className="hidden"
-                            accept=".xlsx, .xls"
-                        />
+
+                    {/* New Filter Buttons */}
+                    <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-xl w-fit">
                         <button 
-                            onClick={handleImportExcelClick}
-                            className="bg-white border border-slate-200 text-slate-700 px-4 py-3 rounded-xl font-bold hover:bg-slate-50 transition-colors flex items-center gap-2 flex-1 md:flex-none justify-center"
+                            onClick={() => setFilterType('all')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${filterType === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
-                            <Upload size={18} />
-                            <span className="hidden sm:inline">Importar Excel</span>
+                            Todos <span className="bg-slate-200 text-slate-600 px-1.5 rounded-md text-[10px]">{counts.all}</span>
                         </button>
                         <button 
-                            onClick={handleSave}
-                            disabled={saving}
-                            className="bg-[#04a7bd] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#038fa3] transition-colors shadow-lg shadow-cyan-500/20 flex items-center gap-2 flex-1 md:flex-none justify-center"
+                            onClick={() => setFilterType('filled')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${filterType === 'filled' ? 'bg-white text-[#149890] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
-                            <Save size={18} />
-                            {saving ? 'Salvando...' : 'Salvar'}
+                            Preenchidos <span className="bg-teal-100 text-teal-700 px-1.5 rounded-md text-[10px]">{counts.filled}</span>
+                        </button>
+                        <button 
+                            onClick={() => setFilterType('empty')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${filterType === 'empty' ? 'bg-white text-orange-500 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Pendentes <span className="bg-orange-100 text-orange-700 px-1.5 rounded-md text-[10px]">{counts.empty}</span>
                         </button>
                     </div>
                 </div>
@@ -428,7 +477,7 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
                                         </div>
                                         <span className="text-sm font-bold text-slate-700 max-w-[150px] truncate" title={exam.nome}>{exam.nome}</span>
                                     </div>
-                                    <div className="relative w-24">
+                                    <div className="relative w-32">
                                         <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">R$</span>
                                         <input 
                                             type="number" 
@@ -442,6 +491,12 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
                                 </div>
                             );
                         })}
+                        {filteredExams.length === 0 && (
+                            <div className="col-span-full py-8 text-center text-slate-400">
+                                <Filter size={32} className="mx-auto mb-2 opacity-20" />
+                                <p className="text-sm">Nenhum exame encontrado para este filtro.</p>
+                            </div>
+                        )}
                     </div>
                 )}
             </>
