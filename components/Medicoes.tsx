@@ -61,7 +61,8 @@ const EXAMS_LIST = [
     { "idx": 46, "id": 493, "nome": "Teste Palográfico" },
     { "idx": 47, "id": 494, "nome": "Teste de Atenção" },
     { "idx": 48, "id": 495, "nome": "Teste Romberg" },
-    { "idx": 49, "id": 496, "nome": "Exame Toxicológico Urina" }
+    { "idx": 49, "id": 496, "nome": "Exame Toxicológico Urina" },
+    { "idx": 50, "id": 497, "nome": "RAC" }
 ];
 
 interface ImportedAttendance {
