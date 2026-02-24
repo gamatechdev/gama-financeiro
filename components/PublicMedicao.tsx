@@ -59,6 +59,7 @@ const PublicMedicao: React.FC<PublicMedicaoProps> = ({ dataToken }) => {
           .from('financeiro_receitas')
           .select('*')
           .eq('contratante', clientId)
+          .neq('status', 'Pago')
           .gte('data_projetada', start)
           .lte('data_projetada', end)
           .order('data_projetada', { ascending: true });
