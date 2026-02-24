@@ -1091,21 +1091,50 @@ const Medicoes: React.FC = () => {
 
 
     const handleMarkAsPaid = async (receita: FinanceiroReceita) => {
+        // Se a receita já estiver paga, não faz nada
         if (receita.status?.toLowerCase() === 'pago') return;
         try {
+            // Define a data de hoje para o pagamento
             const todayStr = new Date().toISOString().split('T')[0];
+            // Atualiza o status no banco de dados
             const { error } = await supabase
                 .from('financeiro_receitas')
                 .update({ status: 'Pago', data_executada: todayStr })
                 .eq('id', receita.id);
 
             if (error) throw error;
+            // Atualiza o estado local para refletir a mudança
             setClienteReceitas(prev => prev.map(r =>
                 r.id === receita.id ? { ...r, status: 'Pago', data_executada: todayStr } : r
             ));
         } catch (error) {
+            // Loga erro e avisa o usuário
             console.error('Error updating status:', error);
             alert('Erro ao atualizar status.');
+        }
+    };
+
+    // Função para excluir uma medição/receita
+    const handleDelete = async (id: string | number) => {
+        // Pede confirmação antes de excluir
+        if (!confirm("Tem certeza que deseja excluir esta medição? Esta ação não pode ser desfeita.")) return;
+
+        try {
+            // Remove o registro da tabela financeiro_receitas
+            const { error } = await supabase
+                .from('financeiro_receitas')
+                .delete()
+                .eq('id', id);
+
+            if (error) throw error;
+
+            // Remove o item do estado local para atualizar a UI instantaneamente
+            setClienteReceitas(prev => prev.filter(r => r.id !== id));
+            alert("Medição excluída com sucesso!");
+        } catch (error) {
+            // Loga o erro e avisa o usuário em caso de falha
+            console.error('Erro ao excluir medição:', error);
+            alert('Erro ao excluir medição. Tente novamente.');
         }
     };
 
@@ -2013,6 +2042,15 @@ const Medicoes: React.FC = () => {
                                                                     </div>
                                                                 </div>
                                                                 <div className="flex items-center gap-3">
+                                                                    {/* Botão de Excluir */}
+                                                                    <button
+                                                                        onClick={() => handleDelete(receita.id)}
+                                                                        className="w-8 h-8 rounded-full bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                                                                        title="Excluir Medição"
+                                                                    >
+                                                                        <X size={14} />
+                                                                    </button>
+
                                                                     {receita.status?.toLowerCase() !== 'pago' && (
                                                                         <button
                                                                             onClick={() => handleMarkAsPaid(receita)}
@@ -2081,6 +2119,15 @@ const Medicoes: React.FC = () => {
                                                 </div>
 
                                                 <div className="flex items-center gap-3">
+                                                    {/* Botão de Excluir */}
+                                                    <button
+                                                        onClick={() => handleDelete(receita.id)}
+                                                        className="w-8 h-8 rounded-full bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                                                        title="Excluir Medição"
+                                                    >
+                                                        <X size={16} />
+                                                    </button>
+
                                                     {receita.status?.toLowerCase() !== 'pago' && (
                                                         <button
                                                             onClick={() => handleMarkAsPaid(receita)}
