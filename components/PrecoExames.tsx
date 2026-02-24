@@ -2,13 +2,13 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { Cliente } from '../types';
 import {
-    Search, Save, Building2, Stethoscope, ChevronDown, Upload, Filter, CheckCircle, Circle, AlertCircle
+    Search, Save, Building2, Stethoscope, ChevronDown, Upload, Filter, CheckCircle, Circle, AlertCircle, Plus
 } from 'lucide-react';
 import * as XLSXPkg from 'xlsx-js-style';
 
 const XLSX = (XLSXPkg as any).default || XLSXPkg;
 
-const EXAMS_LIST = [
+const DEFAULT_EXAMS_LIST = [
     { "idx": 0, "id": 447, "nome": "Avaliação Clínica" },
     { "idx": 1, "id": 448, "nome": "Audiometria" },
     { "idx": 2, "id": 449, "nome": "Acuidade Visual" },
@@ -81,6 +81,17 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
     const [priceMap, setPriceMap] = useState<Record<string, { price: string, dbId: number | null }>>({});
 
     const [saving, setSaving] = useState(false);
+    const [globalExams, setGlobalExams] = useState<{ id: number; nome: string }[]>(DEFAULT_EXAMS_LIST);
+
+    useEffect(() => {
+        const fetchGlobalExams = async () => {
+            const { data, error } = await supabase.from('exames_globais').select('id, nome').order('nome');
+            if (data && data.length > 0) {
+                setGlobalExams(data);
+            }
+        };
+        fetchGlobalExams();
+    }, []);
 
     useEffect(() => {
         if (initialClientId) {
@@ -136,7 +147,7 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
                 const newMap: Record<string, { price: string, dbId: number | null }> = {};
 
                 // Initialize with default exams
-                EXAMS_LIST.forEach(exam => {
+                globalExams.forEach(exam => {
                     newMap[exam.nome] = { price: '', dbId: null };
                 });
 
@@ -145,6 +156,12 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
                     data.forEach((item: any) => {
                         // Use normalize key check or direct check
                         if (newMap[item.nome]) {
+                            newMap[item.nome] = {
+                                price: item.preco ? item.preco.toString() : '',
+                                dbId: item.id
+                            };
+                        } else {
+                            // Add custom exams that are not in EXAMS_LIST
                             newMap[item.nome] = {
                                 price: item.preco ? item.preco.toString() : '',
                                 dbId: item.id
@@ -196,7 +213,7 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
             const colProps = worksheet['!cols'] || [];
             const newPriceMap = { ...priceMap };
 
-            EXAMS_LIST.forEach(exam => {
+            globalExams.forEach(exam => {
                 const existingDbId = priceMap[exam.nome]?.dbId || null;
                 newPriceMap[exam.nome] = { price: '0', dbId: existingDbId };
             });
@@ -215,7 +232,7 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
 
                 const headerText = String(headerCell.v);
 
-                const matchedExam = EXAMS_LIST.find(exam =>
+                const matchedExam = globalExams.find(exam =>
                     normalizeStr(exam.nome) === normalizeStr(headerText)
                 );
 
@@ -265,23 +282,23 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
             const updates = [];
             const inserts = [];
 
-            for (const exam of EXAMS_LIST) {
-                const currentData = priceMap[exam.nome];
-                // Convert string price to number (replace comma with dot if needed)
+            // Iterate over all exams currently in priceMap, including custom ones
+            for (const examName of Object.keys(priceMap)) {
+                const currentData = priceMap[examName];
                 const priceStr = currentData?.price || '0';
                 const numericPrice = parseFloat(priceStr.replace(',', '.')) || 0;
 
-                // If there's a DB ID, it's an update
                 if (currentData?.dbId) {
+                    // Update existing entry
                     updates.push({
                         id: currentData.dbId,
                         preco: numericPrice
                     });
                 } else if (numericPrice > 0) {
-                    // Insert only if price > 0
+                    // Insert new entry if price > 0
                     inserts.push({
-                        nome: exam.nome,
-                        empresaId: selectedClienteId, // Using string UUID directly is fine if column type matches
+                        nome: examName, // Use examName directly for custom exams
+                        empresaId: selectedClienteId,
                         preco: numericPrice
                     });
                 }
@@ -299,15 +316,15 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
 
             alert("Preços atualizados com sucesso!");
 
-            // Refresh
+            // Refresh priceMap to get new dbIds for inserted items
             const { data } = await supabase.from('preco_exames').select('id, nome, preco').eq('empresaId', selectedClienteId);
             if (data) {
                 const newMap = { ...priceMap };
                 data.forEach((item: any) => {
-                    if (newMap[item.nome]) {
-                        newMap[item.nome].dbId = item.id;
-                        newMap[item.nome].price = item.preco ? item.preco.toString() : '';
-                    }
+                    newMap[item.nome] = {
+                        dbId: item.id,
+                        price: item.preco ? item.preco.toString() : ''
+                    };
                 });
                 setPriceMap(newMap);
             }
@@ -331,18 +348,33 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
         let filled = 0;
         let empty = 0;
 
-        EXAMS_LIST.forEach(exam => {
-            const valStr = priceMap[exam.nome]?.price;
+        // Iterate over all exams in priceMap, including custom ones
+        Object.keys(priceMap).forEach(examName => {
+            const valStr = priceMap[examName]?.price;
             const val = valStr ? parseFloat(valStr.replace(',', '.')) : 0;
             if (val > 0) filled++;
             else empty++;
         });
 
-        return { filled, empty, all: EXAMS_LIST.length };
+        return { filled, empty, all: Object.keys(priceMap).length };
+    }, [priceMap]);
+
+    const allAvailableExams = useMemo(() => {
+        const list = [...globalExams];
+        const existingNames = new Set(list.map(e => e.nome.toLowerCase()));
+
+        let nextIdx = list.length;
+        Object.keys(priceMap).forEach(nome => {
+            if (!existingNames.has(nome.toLowerCase())) {
+                list.push({ idx: nextIdx++, id: 10000 + nextIdx, nome });
+                existingNames.add(nome.toLowerCase());
+            }
+        });
+        return list;
     }, [priceMap]);
 
     const filteredExams = useMemo(() => {
-        return EXAMS_LIST.filter(e => {
+        return allAvailableExams.filter(e => {
             const matchesSearch = e.nome.toLowerCase().includes(searchExam.toLowerCase());
             const valStr = priceMap[e.nome]?.price;
             const val = valStr ? parseFloat(valStr.replace(',', '.')) : 0;
@@ -353,7 +385,43 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
 
             return matchesSearch && matchesFilter;
         });
-    }, [searchExam, filterType, priceMap]);
+    }, [searchExam, filterType, priceMap, allAvailableExams]);
+
+    const exactMatchExists = useMemo(() => {
+        if (!searchExam.trim()) return true;
+        return allAvailableExams.some(e => e.nome.toLowerCase() === searchExam.trim().toLowerCase());
+    }, [searchExam, allAvailableExams]);
+
+    const handleCreateCustomExam = async () => {
+        const trimmedNome = searchExam.trim();
+        if (!trimmedNome || !selectedClienteId) return;
+
+        try {
+            // Insere na tabela exames_globais
+            const { data, error } = await supabase.from('exames_globais').insert({
+                nome: trimmedNome
+            }).select();
+
+            if (error) throw error;
+
+            const novoExame = data?.[0];
+            if (novoExame) {
+                setGlobalExams(prev => [...prev, novoExame]);
+            }
+
+            setPriceMap(prev => {
+                const newMap = { ...prev };
+                newMap[trimmedNome] = { price: '0', dbId: null };
+                return newMap;
+            });
+
+            setSearchExam('');
+            alert(`Exame "${trimmedNome}" criado e adicionado à lista global permanentemente!`);
+        } catch (err) {
+            console.error("Erro ao adicionar exame:", err);
+            alert("Erro ao adicionar exame.");
+        }
+    };
 
     const selectedClientName = clientes.find(c => c.id === selectedClienteId)?.nome_fantasia || 'Selecione...';
 
@@ -467,6 +535,17 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
                         <div className="py-10 text-center text-slate-400">Carregando preços...</div>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
+                            {searchExam.trim() && !exactMatchExists && (
+                                <div className="col-span-full mb-2">
+                                    <button
+                                        onClick={handleCreateCustomExam}
+                                        className="w-full p-4 border-2 border-dashed border-[#04a7bd] text-[#04a7bd] rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-cyan-50 transition-colors"
+                                    >
+                                        <Plus size={20} />
+                                        Criar Novo Exame "{searchExam.trim()}"
+                                    </button>
+                                </div>
+                            )}
                             {filteredExams.map((exam) => {
                                 const val = priceMap[exam.nome]?.price || '';
                                 const hasDb = !!priceMap[exam.nome]?.dbId;

@@ -11,7 +11,7 @@ import PrecoExames from './PrecoExames';
 const XLSX = (XLSXPkg as any).default || XLSXPkg;
 
 // Shared list of exams
-const EXAMS_LIST = [
+const DEFAULT_EXAMS_LIST = [
     { "idx": 0, "id": 447, "nome": "Avaliação Clínica" },
     { "idx": 1, "id": 448, "nome": "Audiometria" },
     { "idx": 2, "id": 449, "nome": "Acuidade Visual" },
@@ -92,6 +92,17 @@ const Medicoes: React.FC = () => {
 
     // Local state for Client Settings Input (Controlled)
     const [clientEsocValue, setClientEsocValue] = useState<string>('');
+    const [globalExams, setGlobalExams] = useState<{ id: number; nome: string }[]>(DEFAULT_EXAMS_LIST);
+
+    useEffect(() => {
+        const fetchGlobalExams = async () => {
+            const { data, error } = await supabase.from('exames_globais').select('id, nome').order('nome');
+            if (data && data.length > 0) {
+                setGlobalExams(data);
+            }
+        };
+        fetchGlobalExams();
+    }, []);
 
     // Modal States
     const [isModalOpen, setIsModalOpen] = useState(false); // Add Revenue Modal
@@ -695,7 +706,7 @@ const Medicoes: React.FC = () => {
             if (error) throw error;
 
             const newMap: Record<string, { price: string, dbId: number | null }> = {};
-            EXAMS_LIST.forEach(exam => {
+            globalExams.forEach(exam => {
                 newMap[exam.nome] = { price: '', dbId: null };
             });
 
@@ -851,7 +862,7 @@ const Medicoes: React.FC = () => {
             const colProps = worksheet['!cols'] || [];
             const newPriceMap = { ...priceMap };
 
-            EXAMS_LIST.forEach(exam => {
+            globalExams.forEach(exam => {
                 const existingDbId = priceMap[exam.nome]?.dbId || null;
                 newPriceMap[exam.nome] = { price: '0', dbId: existingDbId };
             });
@@ -870,7 +881,7 @@ const Medicoes: React.FC = () => {
 
                 const headerText = String(headerCell.v);
 
-                const matchedExam = EXAMS_LIST.find(exam =>
+                const matchedExam = globalExams.find(exam =>
                     normalizeStr(exam.nome) === normalizeStr(headerText)
                 );
 
@@ -1026,7 +1037,7 @@ const Medicoes: React.FC = () => {
             const updates = [];
             const inserts = [];
 
-            for (const exam of EXAMS_LIST) {
+            for (const exam of globalExams) {
                 const currentData = priceMap[exam.nome];
                 const numericPrice = currentData.price ? parseFloat(currentData.price.replace(',', '.')) : 0;
 
@@ -1065,7 +1076,7 @@ const Medicoes: React.FC = () => {
     };
 
     const filteredExams = useMemo(() => {
-        return EXAMS_LIST.filter(exam => {
+        return globalExams.filter(exam => {
             const matchesSearch = exam.nome.toLowerCase().includes(searchExam.toLowerCase());
             const currentPrice = priceMap[exam.nome]?.price;
             const hasPrice = currentPrice && parseFloat(currentPrice) > 0;
@@ -1328,6 +1339,67 @@ const Medicoes: React.FC = () => {
         }, 0);
 
         setFormData(prev => ({ ...prev, valor_total: totalSum.toFixed(2) }));
+    };
+
+    const allAvailableExams = useMemo(() => {
+        const list = [...globalExams];
+        const existingNames = new Set(list.map(e => e.nome.toLowerCase()));
+
+        let nextIdx = list.length;
+        Object.keys(clientPrices).forEach(nome => {
+            if (!existingNames.has(nome.toLowerCase())) {
+                list.push({ idx: nextIdx++, id: 10000 + nextIdx, nome });
+                existingNames.add(nome.toLowerCase());
+            }
+        });
+
+        snapshotItems.forEach(item => {
+            const itemNome = item.name;
+            if (!existingNames.has(itemNome.toLowerCase())) {
+                list.push({ idx: nextIdx++, id: 10000 + nextIdx, nome: itemNome });
+                existingNames.add(itemNome.toLowerCase());
+            }
+        });
+
+        return list;
+    }, [clientPrices, snapshotItems]);
+
+    const exactMatchExistsSelection = useMemo(() => {
+        if (!examSearchTerm.trim()) return true;
+        return allAvailableExams.some(e => e.nome.toLowerCase() === examSearchTerm.trim().toLowerCase());
+    }, [examSearchTerm, allAvailableExams]);
+
+    const handleCreateCustomExamSelection = async () => {
+        const trimmedNome = examSearchTerm.trim();
+        if (!trimmedNome) return;
+
+        try {
+            // Insere na tabela exames_globais para aparecer em todas as empresas permanentemente
+            const { data, error } = await supabase.from('exames_globais').insert({
+                nome: trimmedNome
+            }).select();
+
+            if (error) throw error;
+
+            const novoExame = data?.[0];
+            if (novoExame) {
+                setGlobalExams(prev => [...prev, novoExame]);
+            }
+
+            setClientPrices(prev => ({ ...prev, [trimmedNome]: 0 }));
+
+            const newItems = [...snapshotItems, { name: trimmedNome, value: '0' }];
+            setSnapshotItems(newItems);
+
+            const totalSum = newItems.reduce((acc, item) => acc + (parseFloat(item.value) || 0), 0);
+            setFormData(prev => ({ ...prev, valor_total: totalSum.toFixed(2) }));
+
+            setExamSearchTerm('');
+            alert(`Exame "${trimmedNome}" criado e adicionado à medição! Ele agora está disponível para todas as empresas permanentemente.`);
+        } catch (err) {
+            console.error("Erro ao adicionar exame:", err);
+            alert("Erro ao adicionar exame.");
+        }
     };
 
     const handleGenerateLink = async () => {
@@ -2506,7 +2578,19 @@ const Medicoes: React.FC = () => {
                             </div>
                         </div>
                         <div className="flex-1 overflow-y-auto p-2">
-                            {EXAMS_LIST.filter(ex => ex.nome.toLowerCase().includes(examSearchTerm.toLowerCase())).map(exam => {
+                            {examSearchTerm.trim() && !exactMatchExistsSelection && (
+                                <div className="mb-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleCreateCustomExamSelection}
+                                        className="w-full p-4 border-2 border-dashed border-[#04a7bd] text-[#04a7bd] rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-cyan-50 transition-colors"
+                                    >
+                                        <Plus size={20} />
+                                        Criar Novo Exame "{examSearchTerm.trim()}"
+                                    </button>
+                                </div>
+                            )}
+                            {allAvailableExams.filter(ex => ex.nome.toLowerCase().includes(examSearchTerm.toLowerCase())).map(exam => {
                                 const isSelected = snapshotItems.some(i => i.name === exam.nome);
                                 return (
                                     <div
