@@ -2,11 +2,7 @@ import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { Lock, Mail, Loader2 } from 'lucide-react';
 
-interface LoginProps {
-  onLoginSuccess: () => void;
-}
-
-const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
+const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -24,7 +20,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       });
 
       if (error) throw error;
-      onLoginSuccess();
+      // Redirecionamento automático via onAuthStateChange no App.tsx
     } catch (err: any) {
       setError(err.message || 'Erro ao realizar login');
     } finally {
@@ -35,7 +31,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="glass-panel w-full max-w-md p-8 rounded-[20px] relative overflow-hidden bg-white/70">
-        
+
         <div className="absolute -top-10 -right-10 w-32 h-32 bg-[#04a7bd]/20 rounded-full blur-2xl"></div>
         <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-[#050a30]/20 rounded-full blur-2xl"></div>
 
