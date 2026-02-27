@@ -488,7 +488,10 @@ const Dashboard: React.FC = () => {
                 const despesasList = despesas || [];
 
                 const totalRecebido = receitasList
-                    .filter(r => r.status?.toLowerCase() === 'pago')
+                    .filter(r => {
+                        const s = (r.status || '').toLowerCase();
+                        return (s === 'pago' || s === 'pago em dia' || s === 'pago em atraso');
+                    })
                     .reduce((acc, curr) => acc + (curr.valor_total || 0), 0);
 
                 const totalPago = despesasList
@@ -499,7 +502,8 @@ const Dashboard: React.FC = () => {
 
                 const totalAReceber = receitasList
                     .filter(r => {
-                        const isPending = r.status?.toLowerCase() !== 'pago';
+                        const s = (r.status || '').toLowerCase();
+                        const isPending = (s === 'em aberto' || s === 'pendente' || s === 'vencido');
                         const isThisMonth = r.data_projetada?.startsWith(currentMonthPrefix);
                         return isPending && isThisMonth;
                     })
@@ -540,7 +544,8 @@ const Dashboard: React.FC = () => {
                 const overdueMap: Record<string, { debt: number, count: number }> = {};
 
                 receitasList.forEach(r => {
-                    const isPending = r.status?.toLowerCase() !== 'pago';
+                    const s = (r.status || '').toLowerCase();
+                    const isPending = (s === 'em aberto' || s === 'pendente' || s === 'vencido');
                     const dueDate = r.data_projetada?.split('T')[0] || '';
 
                     if (isPending && dueDate < todayStr) {

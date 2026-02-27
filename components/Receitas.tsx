@@ -15,6 +15,8 @@ const Receitas: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
 
+  const [kpis, setKpis] = useState({ total: 0, received: 0, pending: 0 });
+
   const [snapshotItems, setSnapshotItems] = useState<{ name: string, value: string }[]>([]);
 
   const [viewMode, setViewMode] = useState<'cards' | 'rows'>('cards');
@@ -66,17 +68,35 @@ const Receitas: React.FC = () => {
       const startDate = `${year}-${mStr}-01`;
       const endDate = `${year}-${mStr}-${lastDayStr}`;
 
-      const { data, error } = await supabase
-        .from('financeiro_receitas')
-        .select(`*, clientes:contratante (id, nome_fantasia, razao_social)`)
-        .gte('data_projetada', startDate)
-        .lte('data_projetada', endDate)
-        .gt('valor_total', 0)
-        .order('data_projetada', { ascending: true })
-        .range(0, 2000);
+      const p_start = `${startDate}T00:00:00-03:00`;
+      const p_end = `${endDate}T23:59:59-03:00`;
+
+      const [
+        { data, error },
+        { data: totalReceived },
+        { data: totalPending }
+      ] = await Promise.all([
+        supabase
+          .from('financeiro_receitas')
+          .select(`*, clientes:contratante (id, nome_fantasia, razao_social)`)
+          .gte('data_projetada', startDate)
+          .lte('data_projetada', endDate)
+          .order('data_projetada', { ascending: true })
+          .range(0, 2000),
+        supabase.rpc('sum_financeiro_receitas_status_positivo', { p_start, p_end }),
+        supabase.rpc('sum_financeiro_receitas_status_negativo', { p_start, p_end })
+      ]);
 
       if (error) throw error;
       let receitasData: any[] = data || [];
+
+      const calculatedTotalExpected = receitasData.reduce((acc, curr) => acc + (Number(curr.valor_areceber) || 0), 0);
+
+      setKpis({
+        total: calculatedTotalExpected,
+        received: Number(totalReceived) || 0,
+        pending: Number(totalPending) || 0
+      });
 
       receitasData.sort((a, b) => {
         const dateA = a.data_projetada || '';
@@ -118,11 +138,12 @@ const Receitas: React.FC = () => {
   // --- Logic Helpers ---
 
   const getStatusInfo = (receita: FinanceiroReceita) => {
-    const statusDb = receita.status?.toLowerCase() || '';
+    const status = (receita.status || '').toLowerCase();
 
-    if (statusDb === 'pago') {
+    if (status === 'pago' || status === 'pago em dia' || status === 'pago em atraso') {
+      const isLate = status === 'pago em atraso' || (receita.data_executada && receita.data_projetada && receita.data_executada.split('T')[0] > receita.data_projetada.split('T')[0]);
       return {
-        label: 'Pago',
+        label: isLate ? 'Pago em atraso' : 'Pago em dia',
         textColor: 'text-[#149890]', // Secondary
         dotColor: 'bg-[#149890]',
         bgPill: 'bg-teal-50',
@@ -132,7 +153,7 @@ const Receitas: React.FC = () => {
 
     if (!receita.data_projetada) {
       return {
-        label: 'Pendente',
+        label: 'Em Aberto',
         textColor: 'text-slate-500',
         dotColor: 'bg-slate-400',
         bgPill: 'bg-slate-100',
@@ -153,18 +174,8 @@ const Receitas: React.FC = () => {
       };
     }
 
-    if (dueDate === today) {
-      return {
-        label: 'Vencendo',
-        textColor: 'text-orange-600',
-        dotColor: 'bg-orange-500',
-        bgPill: 'bg-orange-100',
-        borderColor: 'border-orange-200'
-      };
-    }
-
     return {
-      label: 'Aguardando',
+      label: 'Em Aberto',
       textColor: 'text-[#04a7bd]', // Primary
       dotColor: 'bg-[#04a7bd]',
       bgPill: 'bg-cyan-50',
@@ -199,14 +210,6 @@ const Receitas: React.FC = () => {
 
   // --- Filter Logic ---
 
-  const kpiReceitas = useMemo(() => {
-    return receitas.filter(r => {
-      if (!r.data_projetada) return false;
-      const rDate = r.data_projetada.slice(0, 7);
-      return rDate === monthFilter;
-    });
-  }, [receitas, monthFilter]);
-
   const filteredReceitas = useMemo(() => {
     return receitas.filter(r => {
       if (!r.data_projetada) return false;
@@ -219,31 +222,15 @@ const Receitas: React.FC = () => {
       const statusInfo = getStatusInfo(r);
       const matchesStatus = statusFilter === 'todos'
         ? true
-        : statusInfo.label.toLowerCase() === statusFilter.toLowerCase();
+        : statusFilter === 'pago'
+          ? (statusInfo.label === 'Pago em dia' || statusInfo.label === 'Pago em atraso')
+          : statusInfo.label.toLowerCase() === statusFilter.toLowerCase();
 
       return matchesSearch && matchesStatus;
     });
   }, [receitas, searchTerm, statusFilter, monthFilter]);
 
-  const kpis = useMemo(() => {
-    let total = 0;
-    let received = 0;
-    let pending = 0;
 
-    kpiReceitas.forEach(r => {
-      const val = r.valor_total || 0;
-      const isPaid = r.status?.toLowerCase() === 'pago';
-
-      total += val;
-      if (isPaid) {
-        received += val;
-      } else {
-        pending += val;
-      }
-    });
-
-    return { total, received, pending };
-  }, [kpiReceitas]);
 
 
   // --- Actions ---
@@ -363,14 +350,17 @@ const Receitas: React.FC = () => {
     if (receita.status?.toLowerCase() === 'pago') return;
     try {
       const todayStr = new Date().toISOString().split('T')[0];
+      const dueDateStr = receita.data_projetada?.split('T')[0] || todayStr;
+      const finalStatus = todayStr > dueDateStr ? 'Pago em atraso' : 'Pago em dia';
+
       const { error } = await supabase
         .from('financeiro_receitas')
-        .update({ status: 'Pago', data_executada: todayStr })
+        .update({ status: finalStatus, data_executada: todayStr })
         .eq('id', receita.id);
 
       if (error) throw error;
       setReceitas(prev => prev.map(r =>
-        r.id === receita.id ? { ...r, status: 'Pago', data_executada: todayStr } : r
+        r.id === receita.id ? { ...r, status: finalStatus, data_executada: todayStr } : r
       ));
     } catch (error) {
       console.error('Error updating status:', error);
@@ -431,7 +421,9 @@ const Receitas: React.FC = () => {
           data_projetada: formData.data_projetada || null,
           data_executada: formData.data_executada || null,
           descricao: formData.descricao,
-          status: formData.data_executada ? 'Pago' : 'Pendente',
+          status: formData.data_executada
+            ? (formData.data_executada > (formData.data_projetada || '') ? 'Pago em atraso' : 'Pago em dia')
+            : 'Em Aberto',
           ...categoryValues,
           ...snapshotFields
         };
@@ -475,7 +467,9 @@ const Receitas: React.FC = () => {
               data_projetada: dueDateStr,
               data_executada: formData.data_executada || null,
               descricao: desc,
-              status: formData.data_executada ? 'Pago' : 'Pendente',
+              status: formData.data_executada
+                ? (formData.data_executada > dueDateStr ? 'Pago em atraso' : 'Pago em dia')
+                : 'Pendente',
               ...categoryInstallmentValues,
               ...snapshotFields
             });
@@ -489,7 +483,9 @@ const Receitas: React.FC = () => {
             data_projetada: formData.data_projetada || null,
             data_executada: formData.data_executada || null,
             descricao: formData.descricao,
-            status: formData.data_executada ? 'Pago' : 'Pendente',
+            status: formData.data_executada
+              ? (formData.data_executada > (formData.data_projetada || '') ? 'Pago em atraso' : 'Pago em dia')
+              : 'Em Aberto',
             ...categoryValues,
             ...snapshotFields
           });
@@ -676,11 +672,9 @@ const Receitas: React.FC = () => {
               className="bg-white/50 hover:bg-white h-full pl-9 pr-8 rounded-xl text-xs font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#04a7bd]/20 transition-all appearance-none cursor-pointer w-full md:w-36"
             >
               <option value="todos">Todos</option>
-              <option value="pago">Pago</option>
-              <option value="pendente">Pendente</option>
+              <option value="pago">Pago (Todos)</option>
+              <option value="em aberto">Em Aberto</option>
               <option value="vencido">Vencido</option>
-              <option value="vencendo">Vencendo</option>
-              <option value="aguardando">Aguardando</option>
             </select>
           </div>
         </div>
@@ -726,9 +720,11 @@ const Receitas: React.FC = () => {
 
                     <div className="mb-6">
                       <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Valor Total</p>
-                      <p className="text-3xl font-bold text-slate-800 tracking-tight">
-                        {formatCurrency(receita.valor_total)}
-                      </p>
+                      <span className="font-bold text-slate-900 line-clamp-1">
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+                          receita.valor_total || 0
+                        )}
+                      </span>
                       {receita.descricao && (
                         <p className="text-xs text-slate-400 mt-2 line-clamp-1 italic">{receita.descricao}</p>
                       )}
