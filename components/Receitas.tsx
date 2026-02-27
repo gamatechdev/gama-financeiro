@@ -73,8 +73,7 @@ const Receitas: React.FC = () => {
 
       const [
         { data, error },
-        { data: totalReceived },
-        { data: totalPending }
+        { data: totalReceived }
       ] = await Promise.all([
         supabase
           .from('financeiro_receitas')
@@ -83,8 +82,7 @@ const Receitas: React.FC = () => {
           .lte('data_projetada', endDate)
           .order('data_projetada', { ascending: true })
           .range(0, 2000),
-        supabase.rpc('sum_financeiro_receitas_status_positivo', { p_start, p_end }),
-        supabase.rpc('sum_financeiro_receitas_status_negativo', { p_start, p_end })
+        supabase.rpc('sum_financeiro_receitas_status_positivo', { p_start, p_end })
       ]);
 
       if (error) throw error;
@@ -95,7 +93,7 @@ const Receitas: React.FC = () => {
       setKpis({
         total: calculatedTotalExpected,
         received: Number(totalReceived) || 0,
-        pending: Number(totalPending) || 0
+        pending: calculatedTotalExpected - (Number(totalReceived) || 0)
       });
 
       receitasData.sort((a, b) => {
