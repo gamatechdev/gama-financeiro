@@ -22,8 +22,8 @@ export interface Cliente {
   status_medicao: string | null; // 'Aguardando' | 'Aceita' | 'Recusada' | null
   aprovado_por: any[] | null; // JSON array ou text array
   modalidade: string | null;
-  envia_esoc: boolean | null; 
-  valor_esoc: number | null; 
+  envia_esoc: boolean | null;
+  valor_esoc: number | null;
 }
 
 export interface Unidade {
@@ -45,6 +45,7 @@ export interface FinanceiroReceita {
   status: string | null;
   exames_snapshot?: any[] | null; // Array de objetos ou strings
   // Campos específicos de tipo de receita
+  valor_areceber?: number | null;
   valor_med?: number | null;
   valor_esoc?: number | null;
   valor_doc?: number | null;

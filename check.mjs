@@ -6,9 +6,9 @@ const supabase = createClient(
 );
 
 async function check() {
-    const { data, error } = await supabase
+    const { data: janData, error } = await supabase
         .from('financeiro_receitas')
-        .select('id, data_projetada')
+        .select('status, valor_total')
         .gte('data_projetada', '2026-01-01')
         .lte('data_projetada', '2026-01-31');
 
@@ -17,9 +17,27 @@ async function check() {
         return;
     }
 
-    console.log("Found Jan 2026:", data.length);
-    const distinct = new Set(data.map(d => d.data_projetada));
-    console.log("Distinct values:", Array.from(distinct));
+    let total = 0;
+    let received = 0;
+    let pending = 0;
+
+    janData.forEach(r => {
+        const val = r.valor_total || 0;
+        const s = (r.status || '').toLowerCase();
+
+        total += val;
+
+        if (s === 'pago' || s === 'pago em dia' || s === 'pago em atraso') {
+            received += val;
+        } else if (s === 'em aberto' || s === 'pendente' || s === 'vencido') {
+            pending += val;
+        }
+    });
+
+    console.log("JAN 2026 KPI CHECK (Rules):");
+    console.log("Total Esperado (VT Only):", total.toFixed(2));
+    console.log("Recebido (VT Only):", received.toFixed(2));
+    console.log("Pendente (VT Only):", pending.toFixed(2));
 }
 
 check();
