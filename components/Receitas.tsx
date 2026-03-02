@@ -72,8 +72,7 @@ const Receitas: React.FC = () => {
       const p_end = `${endDate}T23:59:59-03:00`;
 
       const [
-        { data, error },
-        { data: totalReceived }
+        { data, error }
       ] = await Promise.all([
         supabase
           .from('financeiro_receitas')
@@ -81,19 +80,40 @@ const Receitas: React.FC = () => {
           .gte('data_projetada', startDate)
           .lte('data_projetada', endDate)
           .order('data_projetada', { ascending: true })
-          .range(0, 2000),
-        supabase.rpc('sum_financeiro_receitas_status_positivo', { p_start, p_end })
+          .range(0, 2000)
       ]);
 
       if (error) throw error;
       let receitasData: any[] = data || [];
 
-      const calculatedTotalExpected = receitasData.reduce((acc, curr) => acc + (Number(curr.valor_areceber) || 0), 0);
+      let totalExpected = 0;
+      let totalReceived = 0;
+      let totalPending = 0;
+
+      receitasData.forEach(r => {
+        const val = Number(r.valor_total) || 0;
+        const status = (r.status || '').toLowerCase();
+
+        // 1 - Total Esperado: Soma todos os valores da coluna "valor_total" se for diferente de zero
+        if (val !== 0) {
+          totalExpected += val;
+        }
+
+        // 2 - Recebido: Soma de "valor_total" em que a coluna "status" contenha "pago"
+        if (status.includes('pago')) {
+          totalReceived += val;
+        }
+
+        // 3 - Pendente: Soma de "valor_total" em que a coluna "status" seja "Pendente"
+        if (status === 'pendente') {
+          totalPending += val;
+        }
+      });
 
       setKpis({
-        total: calculatedTotalExpected,
-        received: Number(totalReceived) || 0,
-        pending: calculatedTotalExpected - (Number(totalReceived) || 0)
+        total: totalExpected,
+        received: totalReceived,
+        pending: totalPending
       });
 
       receitasData.sort((a, b) => {
