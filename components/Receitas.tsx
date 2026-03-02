@@ -63,48 +63,58 @@ const Receitas: React.FC = () => {
 
       const [year, month] = monthFilter.split('-').map(Number);
       const mStr = String(month).padStart(2, '0');
-      const lastDayStr = new Date(year, month, 0).getDate().toString().padStart(2, '0');
 
+      // Calculate start and end dates for the month
       const startDate = `${year}-${mStr}-01`;
-      const endDate = `${year}-${mStr}-${lastDayStr}`;
+      const nextMonth = month === 12 ? 1 : month + 1;
+      const nextYear = month === 12 ? year + 1 : year;
+      const nextMonthStr = String(nextMonth).padStart(2, '0');
+      const startOfNextMonth = `${nextYear}-${nextMonthStr}-01`;
 
-      const p_start = `${startDate}T00:00:00-03:00`;
-      const p_end = `${endDate}T23:59:59-03:00`;
+      let allReceitas: any[] = [];
+      let from = 0;
+      let to = 999;
+      let hasMore = true;
 
-      const [
-        { data, error }
-      ] = await Promise.all([
-        supabase
+      while (hasMore) {
+        const { data, error } = await supabase
           .from('financeiro_receitas')
           .select(`*, clientes:contratante (id, nome_fantasia, razao_social)`)
           .gte('data_projetada', startDate)
-          .lte('data_projetada', endDate)
+          .lt('data_projetada', startOfNextMonth)
           .order('data_projetada', { ascending: true })
-          .range(0, 2000)
-      ]);
+          .range(from, to);
 
-      if (error) throw error;
-      let receitasData: any[] = data || [];
+        if (error) throw error;
+
+        const batch = data || [];
+        allReceitas = [...allReceitas, ...batch];
+
+        if (batch.length < 1000) {
+          hasMore = false;
+        } else {
+          from += 1000;
+          to += 1000;
+        }
+      }
 
       let totalExpected = 0;
       let totalReceived = 0;
       let totalPending = 0;
 
-      receitasData.forEach(r => {
+      allReceitas.forEach(r => {
         const val = Number(r.valor_total) || 0;
         const status = (r.status || '').toLowerCase();
 
-        // 1 - Total Esperado: Soma todos os valores da coluna "valor_total" se for diferente de zero
-        if (val !== 0) {
-          totalExpected += val;
-        }
+        // 1 - Total Esperado: soma todos os valores da coluna "valor_total"
+        totalExpected += val;
 
-        // 2 - Recebido: Soma de "valor_total" em que a coluna "status" contenha "pago"
+        // 2 - Recebido: soma todos os valores da coluna "valor_total" que tenham o valor "pago" na coluna "status"
         if (status.includes('pago')) {
           totalReceived += val;
         }
 
-        // 3 - Pendente: Soma de "valor_total" em que a coluna "status" seja "Pendente"
+        // 3 - Pendente: soma todos os valores da coluna "valor_total" que tenham o valor "pendente" na coluna "status"
         if (status === 'pendente') {
           totalPending += val;
         }
@@ -116,13 +126,13 @@ const Receitas: React.FC = () => {
         pending: totalPending
       });
 
-      receitasData.sort((a, b) => {
+      allReceitas.sort((a, b) => {
         const dateA = a.data_projetada || '';
         const dateB = b.data_projetada || '';
         return dateA.localeCompare(dateB);
       });
 
-      setReceitas(receitasData);
+      setReceitas(allReceitas);
 
     } catch (error: any) {
       console.error('Error fetching data:', error.message || JSON.stringify(error));
@@ -171,7 +181,7 @@ const Receitas: React.FC = () => {
 
     if (!receita.data_projetada) {
       return {
-        label: 'Em Aberto',
+        label: 'Pendente',
         textColor: 'text-slate-500',
         dotColor: 'bg-slate-400',
         bgPill: 'bg-slate-100',
@@ -193,7 +203,7 @@ const Receitas: React.FC = () => {
     }
 
     return {
-      label: 'Em Aberto',
+      label: 'Pendente',
       textColor: 'text-[#04a7bd]', // Primary
       dotColor: 'bg-[#04a7bd]',
       bgPill: 'bg-cyan-50',
@@ -441,7 +451,7 @@ const Receitas: React.FC = () => {
           descricao: formData.descricao,
           status: formData.data_executada
             ? (formData.data_executada > (formData.data_projetada || '') ? 'Pago em atraso' : 'Pago em dia')
-            : 'Em Aberto',
+            : 'Pendente',
           ...categoryValues,
           ...snapshotFields
         };
@@ -503,7 +513,7 @@ const Receitas: React.FC = () => {
             descricao: formData.descricao,
             status: formData.data_executada
               ? (formData.data_executada > (formData.data_projetada || '') ? 'Pago em atraso' : 'Pago em dia')
-              : 'Em Aberto',
+              : 'Pendente',
             ...categoryValues,
             ...snapshotFields
           });
@@ -691,7 +701,7 @@ const Receitas: React.FC = () => {
             >
               <option value="todos">Todos</option>
               <option value="pago">Pago (Todos)</option>
-              <option value="em aberto">Em Aberto</option>
+              <option value="pendente">Pendente</option>
               <option value="vencido">Vencido</option>
             </select>
           </div>
