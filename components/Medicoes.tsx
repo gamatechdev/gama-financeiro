@@ -737,9 +737,12 @@ const Medicoes: React.FC = () => {
         }));
     };
 
-    const handleUpdateAllValues = async () => {
+    const handleUpdateAllValues = async (autoConfirm: boolean = false) => {
         if (!selectedCliente) return;
-        if (!confirm("Isso atualizará os valores de todas as medições PENDENTES (não pagas) com base na tabela de preços atual. Deseja continuar?")) return;
+
+        if (!autoConfirm) {
+            if (!confirm("Isso atualizará os valores de todas as medições PENDENTES (não pagas) com base na tabela de preços atual. Deseja continuar?")) return;
+        }
 
         setUpdatingValues(true);
 
@@ -765,7 +768,9 @@ const Medicoes: React.FC = () => {
                 .neq('status', 'Pago');
 
             if (!receitas || receitas.length === 0) {
-                alert("Nenhuma receita pendente encontrada para atualizar.");
+                if (!autoConfirm) {
+                    alert("Nenhuma receita pendente encontrada para atualizar.");
+                }
                 setUpdatingValues(false);
                 return;
             }
@@ -821,12 +826,16 @@ const Medicoes: React.FC = () => {
                 if (!error) updatedCount++;
             }
 
-            alert(`${updatedCount} registros atualizados com sucesso!`);
+            if (!autoConfirm) {
+                alert(`${updatedCount} registros atualizados com sucesso!`);
+            }
             fetchReceitasDoCliente();
 
         } catch (err) {
             console.error("Erro ao atualizar valores em massa:", err);
-            alert("Ocorreu um erro ao atualizar os valores.");
+            if (!autoConfirm) {
+                alert("Ocorreu um erro ao atualizar os valores.");
+            }
         } finally {
             setUpdatingValues(false);
         }
@@ -1966,7 +1975,7 @@ const Medicoes: React.FC = () => {
                         </button>
 
                         <button
-                            onClick={handleUpdateAllValues}
+                            onClick={() => handleUpdateAllValues(false)}
                             disabled={updatingValues}
                             className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-[#04a7bd] hover:border-cyan-200 transition-colors shadow-sm disabled:opacity-50"
                             title="Atualizar valores em massa com tabela atual"
@@ -2598,7 +2607,7 @@ const Medicoes: React.FC = () => {
             )}
 
             {/* Values Modal */}
-            {isValuesModalOpen && <PrecoExamesModal onClose={() => setIsValuesModalOpen(false)} clientId={selectedCliente.id} />}
+            {isValuesModalOpen && <PrecoExamesModal onClose={() => setIsValuesModalOpen(false)} clientId={selectedCliente.id} onPricesSaved={() => handleUpdateAllValues(true)} />}
 
             {/* Exam Selection Modal */}
             {isExamSelectionOpen && (
@@ -2694,7 +2703,7 @@ const Medicoes: React.FC = () => {
 // Internal Component for PrecoExames within Modal
 import PrecoExamesInternal from './PrecoExames';
 
-const PrecoExamesModal: React.FC<{ onClose: () => void, clientId: string }> = ({ onClose, clientId }) => {
+const PrecoExamesModal: React.FC<{ onClose: () => void, clientId: string, onPricesSaved?: () => void }> = ({ onClose, clientId, onPricesSaved }) => {
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={onClose}></div>
@@ -2706,7 +2715,7 @@ const PrecoExamesModal: React.FC<{ onClose: () => void, clientId: string }> = ({
                     </button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-0">
-                    <PrecoExamesInternal initialClientId={clientId} />
+                    <PrecoExamesInternal initialClientId={clientId} onPricesSaved={onPricesSaved} />
                 </div>
             </div>
         </div>

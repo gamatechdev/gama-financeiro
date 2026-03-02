@@ -64,9 +64,10 @@ const DEFAULT_EXAMS_LIST = [
 
 interface PrecoExamesProps {
     initialClientId?: string;
+    onPricesSaved?: () => Promise<void> | void;
 }
 
-const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
+const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId, onPricesSaved }) => {
     const [clientes, setClientes] = useState<Cliente[]>([]);
     const [selectedClienteId, setSelectedClienteId] = useState<string>('');
     const [loading, setLoading] = useState(false);
@@ -315,6 +316,12 @@ const PrecoExames: React.FC<PrecoExamesProps> = ({ initialClientId }) => {
             }
 
             alert("Preços atualizados com sucesso!");
+
+            if (onPricesSaved) {
+                // Ensure Supabase has committed the changes fully
+                await new Promise(resolve => setTimeout(resolve, 500));
+                await onPricesSaved();
+            }
 
             // Refresh priceMap to get new dbIds for inserted items
             const { data } = await supabase.from('preco_exames').select('id, nome, preco').eq('empresaId', selectedClienteId);
