@@ -1,0 +1,21 @@
+﻿--- DB VERIFICATION FOR JANUARY 2026 ---
+Range: data_projetada >= 2026-01-01 AND data_projetada < 2026-02-01
+Total records in DB: 1269
+Calculated KPI Values:
+Total Esperado: R$┬á141.521,95
+Recebido: R$┬á98.041,32
+Pendente: R$┬á38.537,81
+
+--- Sample Records (First 5) ---
+- ID: 22619, Date: 2026-01-03, Value: 4341.3, Status: Pago em dia
+- ID: 20200, Date: 2026-01-05, Value: 0, Status: Pendente
+- ID: 20204, Date: 2026-01-05, Value: 0, Status: Pendente
+- ID: 20086, Date: 2026-01-05, Value: 0, Status: Pendente
+- ID: 20113, Date: 2026-01-05, Value: 0, Status: Pendente
+
+--- Sample Records (Last 5) ---
+- ID: 21283, Date: 2026-01-30, Value: 40, Status: pago
+- ID: 22541, Date: 2026-01-30, Value: 1732.3, Status: Pago em dia
+- ID: 22542, Date: 2026-01-30, Value: 890, Status: Pago em dia
+- ID: 22543, Date: 2026-01-30, Value: 1820, Status: Pago em dia
+- ID: 22544, Date: 2026-01-30, Value: 3759.8, Status: Pago em dia
