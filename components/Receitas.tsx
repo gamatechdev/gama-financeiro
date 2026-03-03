@@ -114,8 +114,8 @@ const Receitas: React.FC = () => {
           totalReceived += val;
         }
 
-        // 3 - Pendente: soma todos os valores da coluna "valor_total" que tenham o valor "pendente" na coluna "status"
-        if (status === 'pendente') {
+        // 3 - Pendente: soma todos os valores da coluna "valor_total" que tenham o valor "pendente" ou "vencido" na coluna "status"
+        if (status === 'pendente' || status === 'vencido') {
           totalPending += val;
         }
       });
