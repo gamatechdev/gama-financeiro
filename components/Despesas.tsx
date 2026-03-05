@@ -204,7 +204,7 @@ const Despesas: React.FC = () => {
             .range(0, 2000); // Batch size
 
           if (error) throw error;
-
+          setDespesas(data || []);
         }
 
       } catch (err: any) {
@@ -1184,7 +1184,10 @@ const Despesas: React.FC = () => {
                       <p className="text-3xl font-bold text-slate-800 tracking-tight">
                         {formatCurrency(despesa.valor)}
                       </p>
-                      <div className="flex items-center gap-2 mt-2">
+                      {despesa.desc && (
+                        <p className="text-xs text-slate-400 mt-2 line-clamp-2 italic" title={despesa.desc}>{despesa.desc}</p>
+                      )}
+                      <div className="flex items-center gap-2 mt-3">
                         {despesa.fornecedor && (
                           <p className="text-xs text-slate-500 flex items-center gap-1 truncate">
                             <Briefcase size={12} /> {despesa.fornecedor}
@@ -1276,10 +1279,11 @@ const Despesas: React.FC = () => {
           ) : (
             <div className="glass-panel rounded-[32px] overflow-hidden pb-4">
               <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50/50 border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                <div className="col-span-4">Nome / Fornecedor</div>
-                <div className="col-span-2">Setor</div>
-                <div className="col-span-2">Vencimento</div>
-                <div className="col-span-2">Valor</div>
+                <div className="col-span-3">Nome / Fornecedor</div>
+                <div className="col-span-2">Descrição / Responsável</div>
+                <div className="col-span-2">Setor / Tipo</div>
+                <div className="col-span-1">Vencimento</div>
+                <div className="col-span-2">Valor / Pagam.</div>
                 <div className="col-span-2 text-right">Ações</div>
               </div>
 
@@ -1292,46 +1296,66 @@ const Despesas: React.FC = () => {
                   return (
                     <div key={despesa.id} className={`grid grid-cols-1 md:grid-cols-12 gap-4 px-6 py-4 hover:bg-white/60 transition-colors items-center group ${isProviderService ? 'bg-cyan-50/20' : ''}`}>
 
-                      <div className="col-span-1 md:col-span-4 flex items-center gap-3 overflow-hidden">
+                      <div className="col-span-1 md:col-span-3 flex items-center gap-3 overflow-hidden">
                         <div className={`w-2 h-10 rounded-full shrink-0 ${status.dotColor}`}></div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <p className="font-bold text-slate-700 truncate text-sm md:text-base">{despesa.nome || 'Despesa'}</p>
+                            <p className="font-bold text-slate-700 truncate text-sm">{despesa.nome || 'Despesa'}</p>
                             {isProviderService && <UserCog size={14} className="text-[#04a7bd]" />}
                           </div>
-                          <div className="flex items-center gap-2">
-                            {despesa.fornecedor && <span className="text-xs text-slate-500 truncate">{despesa.fornecedor}</span>}
+                          <div className="flex items-center gap-1 mt-1 flex-wrap">
+                            {despesa.fornecedor && <span className="text-[10px] text-slate-500 truncate leading-none">Fornec: {despesa.fornecedor}</span>}
                             {despesa.recorrente && <RefreshCw size={10} className="text-purple-500" />}
-                            <span className={`md:hidden px-2 py-0.5 rounded-full text-[10px] uppercase font-bold ${status.bgPill} ${status.textColor}`}>{status.label}</span>
                           </div>
                         </div>
                       </div>
 
-                      <div className="col-span-1 md:col-span-2 flex flex-col justify-center">
-                        {despesa.categoria ? (
-                          <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-md w-fit">
-                            {despesa.categoria}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-slate-300">—</span>
-                        )}
-                        <span className="text-[10px] text-slate-400 mt-0.5">{despesa.centro_custos}</span>
+                      <div className="col-span-1 md:col-span-2 flex flex-col justify-center min-w-0">
+                        <p className="text-[11px] text-slate-600 truncate font-medium" title={despesa.desc || ''}>
+                          {despesa.desc || <span className="text-slate-300 italic">Sem descrição</span>}
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-1 truncate">{despesa.responsavel}</p>
                       </div>
 
-                      <div className="col-span-1 md:col-span-2 flex items-center gap-2 text-sm">
+                      <div className="col-span-1 md:col-span-2 flex flex-col justify-center">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {despesa.categoria ? (
+                            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                              {despesa.categoria}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-300">—</span>
+                          )}
+                          {despesa.tipo && (
+                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                              {despesa.tipo}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-400 mt-1 truncate">{despesa.centro_custos}</span>
+                      </div>
+
+                      <div className="col-span-1 md:col-span-1 flex items-center text-xs">
                         <Calendar size={14} className="text-slate-400 md:hidden" />
-                        <span className={`font-medium ${status.label === 'Vencido' ? 'text-red-500' : 'text-slate-600'}`}>
+                        <span className={`font-semibold ${status.label === 'Vencido' ? 'text-red-500' : 'text-slate-600'}`}>
                           {formatDate(despesa.data_projetada)}
                         </span>
                       </div>
 
-                      <div className="col-span-1 md:col-span-2">
-                        <p className="font-bold text-slate-800 text-sm md:text-base">{formatCurrency(despesa.valor)}</p>
-                        {despesa.qnt_parcela && despesa.qnt_parcela > 1 && (
-                          <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                            <Layers size={10} /> {despesa.qnt_parcela}x
-                          </span>
-                        )}
+                      <div className="col-span-1 md:col-span-2 flex flex-col justify-center">
+                        <p className="font-bold text-slate-800 text-sm">{formatCurrency(despesa.valor)}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          {despesa.forma_pagamento && (
+                            <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                              <CreditCard size={10} /> {despesa.forma_pagamento}
+                            </span>
+                          )}
+                          {despesa.qnt_parcela && despesa.qnt_parcela > 1 && (
+                            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                              <Layers size={10} /> {despesa.qnt_parcela}x
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       <div className="col-span-1 md:col-span-2 flex items-center justify-end gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
