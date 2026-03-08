@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { Cliente, FinanceiroReceita } from '../types';
 import {
     Building2, Search, ChevronRight, ArrowLeft, Calendar,
-    CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit, Stethoscope, CloudUpload, FileText, Tag, Save, DollarSign, Upload, RefreshCw, Grid, List, Trash2, Calculator, Info, FileSpreadsheet, Briefcase, Hash, Send, AlertTriangle, ArrowRight
+    CheckCircle, AlertCircle, Layers, TrendingUp, Filter, ChevronLeft, ChevronDown, Check, Plus, X, Share2, Copy, Clock, XCircle, Edit, Stethoscope, CloudUpload, FileText, Tag, Save, DollarSign, Upload, RefreshCw, Grid, List, Trash2, Calculator, Info, FileSpreadsheet, Briefcase, Hash, Send, AlertTriangle, ArrowRight, LayoutGrid
 } from 'lucide-react';
 import * as XLSXPkg from 'xlsx-js-style';
 import PrecoExames from './PrecoExames';
@@ -76,10 +76,76 @@ interface ImportedService {
     value: number;
 }
 
-const Medicoes: React.FC = () => {
+interface MedicoesProps {
+    sharedCompany: string;
+    setSharedCompany: (c: string) => void;
+    sharedDate: Date;
+    setSharedDate: (d: Date | ((prev: Date) => Date)) => void;
+    sharedViewMode: 'mensal' | 'anual';
+    setSharedViewMode: (v: 'mensal' | 'anual') => void;
+}
+
+const Medicoes: React.FC<MedicoesProps> = ({
+    sharedCompany,
+    setSharedCompany,
+    sharedDate,
+    setSharedDate,
+    sharedViewMode,
+    setSharedViewMode
+}) => {
     const [clientes, setClientes] = useState<Cliente[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [viewModeUI, setViewModeUI] = useState<'cards' | 'rows'>('cards');
+
+    const [showCalendar, setShowCalendar] = useState(false);
+    const calendarRef = useRef<HTMLDivElement>(null);
+    const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
+
+    const selectedMonth = useMemo(() => sharedDate.toISOString().slice(0, 7), [sharedDate]);
+    const viewMode = sharedViewMode === 'mensal' ? 'monthly' : 'recent'; // Mapping to keep compatibility with old logic if needed
+    const setViewMode = (v: any) => setSharedViewMode(v === 'monthly' ? 'mensal' : 'anual');
+
+    const handleMonthChange = (step: number) => {
+        setSharedDate(prev => {
+            const nd = new Date(prev);
+            if (sharedViewMode === 'mensal') {
+                nd.setMonth(nd.getMonth() + step);
+            } else {
+                nd.setFullYear(nd.getFullYear() + step);
+            }
+            return nd;
+        });
+    };
+
+    const selectMonthFromCalendar = (monthIndex: number) => {
+        setSharedDate(prev => {
+            const nd = new Date(prev);
+            nd.setMonth(monthIndex);
+            return nd;
+        });
+        setShowCalendar(false);
+    };
+
+    // Close calendar when clicking outside
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (calendarRef.current && !calendarRef.current.contains(event.target as Node)) {
+                setShowCalendar(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, []);
+
+    // Sync calendar year
+    useEffect(() => {
+        if (sharedDate) {
+            setCalendarYear(sharedDate.getFullYear());
+        }
+    }, [sharedDate]);
 
     // State for Detail View
     const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
@@ -151,48 +217,12 @@ const Medicoes: React.FC = () => {
     });
 
     // --- Date Filtering State ---
-    const [viewMode, setViewMode] = useState<'recent' | 'monthly'>('recent');
-    const [selectedMonth, setSelectedMonth] = useState(() => {
-        const now = new Date();
-        return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 7);
-    });
-    const [showCalendar, setShowCalendar] = useState(false);
-    const calendarRef = useRef<HTMLDivElement>(null);
-    const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
-
-    // Close calendar when clicking outside
-    useEffect(() => {
-        function handleClickOutside(event: MouseEvent) {
-            if (calendarRef.current && !calendarRef.current.contains(event.target as Node)) {
-                setShowCalendar(false);
-            }
-        }
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
-    }, []);
-
     // Sync calendar year
     useEffect(() => {
-        if (selectedMonth) {
-            setCalendarYear(parseInt(selectedMonth.split('-')[0]));
+        if (sharedDate) {
+            setCalendarYear(sharedDate.getFullYear());
         }
-    }, [selectedMonth]);
-
-    const handleMonthChange = (step: number) => {
-        if (!selectedMonth) return;
-        const [year, month] = selectedMonth.split('-').map(Number);
-        const date = new Date(year, month - 1 + step, 1);
-        const newStr = date.toISOString().slice(0, 7);
-        setSelectedMonth(newStr);
-    };
-
-    const selectMonthFromCalendar = (monthIndex: number) => {
-        const newMonth = new Date(calendarYear, monthIndex, 1);
-        setSelectedMonth(newMonth.toISOString().slice(0, 7));
-        setShowCalendar(false);
-    };
+    }, [sharedDate]);
 
     // Sync Local Input State when Client Changes
     useEffect(() => {
@@ -207,6 +237,7 @@ const Medicoes: React.FC = () => {
         const fetchClientes = async () => {
             try {
                 setLoading(true);
+                // No company filter here as requested
                 const { data, error } = await supabase
                     .from('clientes')
                     .select('*')
@@ -230,32 +261,32 @@ const Medicoes: React.FC = () => {
 
         try {
             setLoadingReceitas(true);
-            // Alterado para incluir o join com unidades via coluna unidade_contratante
             let query = supabase
                 .from('financeiro_receitas')
                 .select('*, unidades:unidade_contratante(nome_unidade)')
-                .eq('contratante', selectedCliente.id)
-                .order('data_projetada', { ascending: false });
+                .eq('contratante', selectedCliente.id);
+
+            // Removing Company Filter as requested for this screen
 
             // Date Logic
-            const now = new Date();
             let startDateStr = '';
             let endDateStr = '';
 
-            if (viewMode === 'recent') {
-                const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-                startDateStr = prevMonth.toISOString().split('T')[0];
-                const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-                endDateStr = nextMonth.toISOString().split('T')[0];
+            if (sharedViewMode === 'anual') {
+                const year = sharedDate.getFullYear();
+                startDateStr = `${year}-01-01`;
+                endDateStr = `${year}-12-31`;
             } else {
-                const [y, m] = selectedMonth.split('-').map(Number);
-                const start = new Date(y, m - 1, 1);
-                const end = new Date(y, m, 0);
+                const year = sharedDate.getFullYear();
+                const month = sharedDate.getMonth();
+                const start = new Date(year, month, 1);
+                const end = new Date(year, month + 1, 0);
                 startDateStr = start.toISOString().split('T')[0];
                 endDateStr = end.toISOString().split('T')[0];
             }
 
-            query = query.gte('data_projetada', startDateStr).lte('data_projetada', endDateStr);
+            query = query.gte('data_projetada', startDateStr).lte('data_projetada', endDateStr)
+                .order('data_projetada', { ascending: false });
 
             const { data, error } = await query;
 
@@ -270,7 +301,7 @@ const Medicoes: React.FC = () => {
 
     useEffect(() => {
         fetchReceitasDoCliente();
-    }, [selectedCliente, viewMode, selectedMonth]);
+    }, [selectedCliente, sharedViewMode, sharedDate]);
 
     // Helper for normalization
     const normalizeStr = (str: string) => {
@@ -1669,10 +1700,73 @@ const Medicoes: React.FC = () => {
     if (!selectedCliente) {
         return (
             <div className="p-6 relative min-h-full space-y-6">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="flex flex-col xl:flex-row justify-between items-center gap-6">
                     <div>
                         <h2 className="text-3xl font-bold tracking-tight text-[#050a30]">Medições</h2>
                         <p className="text-slate-500 mt-1">Selecione uma empresa para ver o histórico</p>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-4 items-center w-full xl:w-auto overflow-auto pb-4 sm:pb-0">
+                        {/* ViewMode Switcher (Cards vs Rows) */}
+                        <div className="bg-slate-200/60 p-1.5 rounded-2xl flex relative min-w-max">
+                            <button onClick={() => setViewModeUI('cards')} className={`p-2.5 rounded-xl transition-all ${viewModeUI === 'cards' ? 'bg-white text-[#04a7bd] shadow-md' : 'text-slate-500 hover:text-slate-700'}`}><LayoutGrid size={20} /></button>
+                            <button onClick={() => setViewModeUI('rows')} className={`p-2.5 rounded-xl transition-all ${viewModeUI === 'rows' ? 'bg-white text-[#04a7bd] shadow-md' : 'text-slate-500 hover:text-slate-700'}`}><List size={20} /></button>
+                        </div>
+
+                        {/* Period Switcher */}
+                        <div className="bg-slate-200/60 p-1.5 rounded-2xl flex relative min-w-max">
+                            <button onClick={() => setSharedViewMode('mensal')} className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${sharedViewMode === 'mensal' ? 'bg-white text-[#04a7bd] shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>Mensal</button>
+                            <button onClick={() => setSharedViewMode('anual')} className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${sharedViewMode === 'anual' ? 'bg-white text-[#04a7bd] shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>Anual</button>
+                        </div>
+
+                        <div className="flex items-center justify-between bg-white rounded-2xl p-1 shadow-sm border border-slate-100 min-w-max relative" ref={calendarRef}>
+                            <button onClick={() => handleMonthChange(-1)} className="p-2 text-slate-400 hover:text-[#04a7bd] transition-colors"><ChevronLeft size={20} /></button>
+                            <button
+                                onClick={() => setShowCalendar(!showCalendar)}
+                                className="font-bold text-[#050a30] px-3 min-w-[100px] text-center capitalize hover:text-[#04a7bd] transition-colors"
+                            >
+                                {sharedViewMode === 'mensal' ? sharedDate.toLocaleString('pt-BR', { month: 'short', year: 'numeric' }).replace('.', '') : sharedDate.getFullYear()}
+                            </button>
+                            <button onClick={() => handleMonthChange(1)} className="p-2 text-slate-400 hover:text-[#04a7bd] transition-colors"><ChevronRight size={20} /></button>
+
+                            {showCalendar && (
+                                <div className="absolute top-full right-0 mt-2 w-72 glass-panel p-4 rounded-2xl shadow-xl animate-[scaleIn_0.15s_ease-out] border border-white/70 z-50 bg-white/90">
+                                    <div className="flex items-center justify-between mb-4 px-1">
+                                        <button onClick={() => setCalendarYear(y => y - 1)} className="p-1 hover:bg-slate-100 rounded-lg text-slate-500">
+                                            <ChevronLeft size={20} />
+                                        </button>
+                                        <span className="font-bold text-lg text-slate-800">{calendarYear}</span>
+                                        <button onClick={() => setCalendarYear(y => y + 1)} className="p-1 hover:bg-slate-100 rounded-lg text-slate-500">
+                                            <ChevronRight size={20} />
+                                        </button>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'].map((name, index) => {
+                                            const isSelected = sharedDate.getMonth() === index && sharedDate.getFullYear() === calendarYear;
+                                            const isCurrentMonth = new Date().getMonth() === index && new Date().getFullYear() === calendarYear;
+
+                                            return (
+                                                <button
+                                                    key={name}
+                                                    onClick={() => selectMonthFromCalendar(index)}
+                                                    className={`
+                                                    py-2 rounded-xl text-sm font-medium transition-all
+                                                    ${isSelected
+                                                            ? 'bg-[#050a30] text-white shadow-lg'
+                                                            : isCurrentMonth
+                                                                ? 'bg-cyan-50 text-[#04a7bd] border border-cyan-100'
+                                                                : 'hover:bg-slate-100 text-slate-600'}
+                                                `}
+                                                >
+                                                    {name}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -1693,7 +1787,11 @@ const Medicoes: React.FC = () => {
                     <div className="flex justify-center py-20">
                         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#04a7bd]"></div>
                     </div>
-                ) : (
+                ) : filteredClientes.length === 0 ? (
+                    <div className="text-center py-20 text-slate-400 glass-panel rounded-2xl">
+                        Nenhuma medição encontrada neste filtro.
+                    </div>
+                ) : viewModeUI === 'cards' ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {filteredClientes.map((cliente) => {
                             const statusInfo = getMedicaoStatusInfo(cliente.status_medicao);
@@ -1732,6 +1830,58 @@ const Medicoes: React.FC = () => {
                                 </div>
                             );
                         })}
+                    </div>
+                ) : (
+                    <div className="glass-panel overflow-hidden rounded-[24px] border border-white/60">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead>
+                                    <tr className="bg-slate-50/50 border-b border-slate-100">
+                                        <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Cliente / Empresa</th>
+                                        <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status Medição</th>
+                                        <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {filteredClientes.map((cliente) => {
+                                        const statusInfo = getMedicaoStatusInfo(cliente.status_medicao);
+                                        return (
+                                            <tr
+                                                key={cliente.id}
+                                                className="hover:bg-white/60 transition-colors group cursor-pointer"
+                                                onClick={() => setSelectedCliente(cliente)}
+                                            >
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-10 h-10 rounded-xl bg-cyan-50 text-[#04a7bd] flex items-center justify-center shrink-0">
+                                                            <Building2 size={18} />
+                                                        </div>
+                                                        <div>
+                                                            <p className="font-bold text-[#050a30] text-sm">{cliente.nome_fantasia || 'Sem Nome'}</p>
+                                                            <p className="text-xs text-slate-400 line-clamp-1 max-w-[300px]">{cliente.razao_social}</p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className={`px-3 py-1 rounded-full border inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${statusInfo.color}`}>
+                                                        {statusInfo.icon}
+                                                        {statusInfo.label}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <div className="p-2 rounded-lg bg-[#04a7bd]/10 text-[#04a7bd] flex items-center gap-1 text-xs font-bold uppercase">
+                                                            Ver Detalhes
+                                                            <ChevronRight size={14} />
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 )}
             </div>
@@ -2187,7 +2337,7 @@ const Medicoes: React.FC = () => {
 
             {/* NEW MODAL for Adding Revenue */}
             {isModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <div className="fixed inset-0 z-[1001] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/10 backdrop-blur-md" onClick={() => setIsModalOpen(false)}></div>
 
                     <div className="glass-panel w-full max-w-5xl rounded-[32px] relative z-10 p-0 overflow-hidden bg-white/90 shadow-2xl border border-white/60 animate-[scaleIn_0.2s_ease-out] flex flex-col max-h-[95vh]">

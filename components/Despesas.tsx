@@ -30,7 +30,23 @@ interface Gerencia {
   descricao: string;
 }
 
-const Despesas: React.FC = () => {
+interface DespesasProps {
+  sharedCompany: 'Consolidado' | 'Gama Medicina' | 'Gama Soluções';
+  setSharedCompany: (company: 'Consolidado' | 'Gama Medicina' | 'Gama Soluções') => void;
+  sharedDate: Date;
+  setSharedDate: (date: Date) => void;
+  sharedViewMode: 'mensal' | 'anual';
+  setSharedViewMode: (mode: 'mensal' | 'anual') => void;
+}
+
+const Despesas: React.FC<DespesasProps> = ({
+  sharedCompany: company,
+  setSharedCompany: setCompany,
+  sharedDate,
+  setSharedDate,
+  sharedViewMode,
+  setSharedViewMode
+}) => {
   const [despesas, setDespesas] = useState<FinanceiroDespesa[]>([]);
   const [gerenciasList, setGerenciasList] = useState<Gerencia[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,12 +71,16 @@ const Despesas: React.FC = () => {
   const [showCalendar, setShowCalendar] = useState(false);
   const calendarRef = useRef<HTMLDivElement>(null);
 
-  const [monthFilter, setMonthFilter] = useState(() => {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
+  const monthFilter = useMemo(() => {
+    const y = sharedDate.getFullYear();
+    const m = String(sharedDate.getMonth() + 1).padStart(2, '0');
     return `${y}-${m}`;
-  });
+  }, [sharedDate]);
+
+  const setMonthFilter = (newMonthFilter: string) => {
+    const [y, m] = newMonthFilter.split('-').map(Number);
+    setSharedDate(new Date(y, m - 1, 1));
+  };
 
   // Refresh trigger to force re-fetch without changing filters
   const [refreshKey, setRefreshKey] = useState(0);
@@ -106,12 +126,9 @@ const Despesas: React.FC = () => {
     fetchGerencias();
   }, []);
 
-  // MAIN FETCH LOGIC - Runs on monthFilter change or refreshKey
   useEffect(() => {
     const fetchDespesas = async () => {
-      // Validate monthFilter format (YYYY-MM) to prevent Date errors
       if (!monthFilter || !/^\d{4}-\d{2}$/.test(monthFilter)) {
-        console.warn("Filtro de mês inválido ou vazio, ignorando fetch:", monthFilter);
         setLoading(false);
         return;
       }
@@ -120,94 +137,73 @@ const Despesas: React.FC = () => {
       try {
         const [year, month] = monthFilter.split('-').map(Number);
 
-        if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
-          throw new Error("Data inválida para filtro");
-        }
+        let startDateValue = "";
+        let endDateValue = "";
 
-        const mStr = String(month).padStart(2, '0');
-        const nextM = month === 12 ? 1 : month + 1;
-        const nextY = month === 12 ? year + 1 : year;
-
-        // Find last day by creating date of next month day 0
-        const lastDayStr = new Date(year, month, 0).getDate().toString().padStart(2, '0');
-
-        const startDate = `${year}-${mStr}-01`;
-        const endDate = `${year}-${mStr}-${lastDayStr}`;
-
-        const now = new Date();
-        const yNow = now.getFullYear();
-        const mNow = String(now.getMonth() + 1).padStart(2, '0');
-        const currentRealMonth = `${yNow}-${mNow}`;
-        const isCurrentMonthView = monthFilter === currentRealMonth;
-
-        if (isCurrentMonthView) {
-          // Scenario A: Current Month
-          // We need 1. Items in this month AND 2. Overdue items from previous months
-
-          // Request 1: This Month
-          const reqMonth = supabase
-            .from('financeiro_despesas')
-            .select('*')
-            .gte('data_projetada', startDate)
-            .lte('data_projetada', endDate)
-            .range(0, 2000); // Batch size
-
-          // Request 2: Overdue (Before start date AND Not Paid)
-          const reqOverdue = supabase
-            .from('financeiro_despesas')
-            .select('*')
-            .lt('data_projetada', startDate)
-            .neq('status', 'Pago')
-            .range(0, 2000); // Batch size
-
-          const [resMonth, resOverdue] = await Promise.all([reqMonth, reqOverdue]);
-
-          if (resMonth.error) throw resMonth.error;
-          if (resOverdue.error) throw resOverdue.error;
-
-          const monthData = resMonth.data || [];
-          const overdueData = resOverdue.data || [];
-
-          // Identify formally overdue items before merge
-          monthData.forEach((item: any) => {
-            if (item.data_projetada < startDate && item.status !== 'Pago') {
-              item._isOverdueFromPast = true;
-            }
-          });
-          overdueData.forEach((item: any) => {
-            item._isOverdueFromPast = true;
-          });
-
-          // Merge and deduplicate
-          const combined = [...overdueData, ...monthData];
-          const uniqueMap = new Map();
-          combined.forEach(item => uniqueMap.set(item.id, item));
-          const uniqueList = Array.from(uniqueMap.values());
-
-          uniqueList.sort((a: any, b: any) => {
-            const dateA = a.data_projetada || '';
-            const dateB = b.data_projetada || '';
-            return dateA.localeCompare(dateB);
-          });
-
-          setDespesas(uniqueList);
-
+        if (sharedViewMode === 'anual') {
+          startDateValue = `${year}-01-01`;
+          endDateValue = `${year}-12-31`;
         } else {
-          // Scenario B: Historic or Future Month
-          // Strict filtering: Only items within the month range
-          const { data, error } = await supabase
-            .from('financeiro_despesas')
-            .select('*')
-            .gte('data_projetada', startDate)
-            .lte('data_projetada', endDate)
-            .order('data_projetada', { ascending: true })
-            .range(0, 2000); // Batch size
-
-          if (error) throw error;
-          setDespesas(data || []);
+          const mStr = String(month).padStart(2, '0');
+          startDateValue = `${year}-${mStr}-01`;
+          const nextMonthDate = new Date(year, month, 1);
+          endDateValue = nextMonthDate.toISOString().split('T')[0];
         }
 
-      } catch (err: any) {
+        // 1. Current Period logic for overdue
+        const isCurrentPeriod = sharedViewMode === 'mensal' &&
+          year === new Date().getFullYear() &&
+          month === (new Date().getMonth() + 1);
+
+        // 2. Fetch main data
+        let query = supabase
+          .from('financeiro_despesas')
+          .select('*');
+
+        if (company === 'Gama Medicina') {
+          query = query.or(`responsavel.ilike.%Gama Medicina%,responsavel.is.null`);
+        } else if (company !== 'Consolidado') {
+          query = query.ilike('responsavel', company);
+        }
+
+        if (sharedViewMode === 'anual') {
+          query = query.gte('data_projetada', startDateValue).lte('data_projetada', endDateValue);
+        } else {
+          query = query.gte('data_projetada', startDateValue).lt('data_projetada', endDateValue);
+        }
+
+        const { data: mainData, error: mainError } = await query.order('data_projetada', { ascending: true });
+        if (mainError) throw mainError;
+
+        let finalDespesas = mainData || [];
+
+        // 3. Overdue logic
+        if (isCurrentPeriod) {
+          let overdueQuery = supabase
+            .from('financeiro_despesas')
+            .select('*')
+            .eq('status', 'Pendente')
+            .lt('data_projetada', startDateValue);
+
+          if (company === 'Gama Medicina') {
+            overdueQuery = overdueQuery.or(`responsavel.ilike.%Gama Medicina%,responsavel.is.null`);
+          } else if (company !== 'Consolidado') {
+            overdueQuery = overdueQuery.ilike('responsavel', company);
+          }
+
+          const { data: overdueData, error: overdueError } = await overdueQuery;
+          if (!overdueError && overdueData) {
+            // Combine and Deduplicate
+            const combined = [...overdueData, ...finalDespesas];
+            const uniqueMap = new Map();
+            combined.forEach(item => uniqueMap.set(item.id, item));
+            finalDespesas = Array.from(uniqueMap.values());
+            finalDespesas.sort((a, b) => (a.data_projetada || '').localeCompare(b.data_projetada || ''));
+          }
+        }
+
+        setDespesas(finalDespesas as any[]);
+      } catch (err) {
         console.error("Erro ao buscar despesas:", err);
       } finally {
         setLoading(false);
@@ -215,7 +211,7 @@ const Despesas: React.FC = () => {
     };
 
     fetchDespesas();
-  }, [monthFilter, refreshKey]);
+  }, [monthFilter, sharedViewMode, company, refreshKey]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -836,16 +832,34 @@ const Despesas: React.FC = () => {
   return (
     <div className="p-6 relative min-h-full space-y-6">
 
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight text-[#050a30]">Despesas</h2>
-          <p className="text-slate-500 mt-1">
-            Controle de saídas de <span className="font-semibold text-slate-700">{formatMonth(monthFilter)}</span>
-          </p>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+        <div className="flex flex-col md:flex-row items-start md:items-center gap-6 w-full md:w-auto">
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight text-[#050a30]">Despesas</h2>
+            <p className="text-slate-500 mt-1">
+              Controle de saídas de <span className="font-semibold text-slate-700">{formatMonth(monthFilter)}</span>
+            </p>
+          </div>
+
+          <div className="bg-slate-200/60 p-1 rounded-2xl flex relative min-w-max self-center md:self-auto">
+            <button
+              onClick={() => setCompany('Consolidado')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${company === 'Consolidado' ? 'bg-white text-[#04a7bd] shadow-md' : 'text-slate-500 hover:text-slate-700'}`}
+            >Consolidado</button>
+            <button
+              onClick={() => setCompany('Gama Medicina')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${company === 'Gama Medicina' ? 'bg-white text-[#04a7bd] shadow-md' : 'text-slate-500 hover:text-slate-700'}`}
+            >Gama Medicina</button>
+            <button
+              onClick={() => setCompany('Gama Soluções')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${company === 'Gama Soluções' ? 'bg-white text-[#04a7bd] shadow-md' : 'text-slate-500 hover:text-slate-700'}`}
+            >Gama Soluções</button>
+          </div>
         </div>
+
         <button
           onClick={handleOpenNew}
-          className="bg-[#050a30] hover:bg-[#030720] text-white px-5 py-3 rounded-full font-medium shadow-lg shadow-[#050a30]/20 transition-all flex items-center gap-2"
+          className="bg-[#050a30] hover:bg-[#030720] text-white px-5 py-3 rounded-full font-medium shadow-lg shadow-[#050a30]/20 transition-all flex items-center gap-2 w-full md:w-auto justify-center"
         >
           <Plus size={20} />
           Nova Despesa
@@ -1394,8 +1408,8 @@ const Despesas: React.FC = () => {
       )}
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/20 backdrop-blur-md" onClick={() => setIsModalOpen(false)}></div>
+        <div className="fixed inset-0 z-[1001] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}></div>
 
           <div className="glass-panel w-full max-w-5xl rounded-[32px] relative z-10 p-0 overflow-hidden bg-white/95 shadow-2xl border border-white/60 animate-[scaleIn_0.2s_ease-out] flex flex-col max-h-[95vh]">
 

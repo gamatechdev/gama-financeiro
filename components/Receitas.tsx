@@ -7,7 +7,23 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatMonth, monthNames } from '../utils';
 
-const Receitas: React.FC = () => {
+interface ReceitasProps {
+  sharedCompany: 'Consolidado' | 'Gama Medicina' | 'Gama Soluções';
+  setSharedCompany: (company: 'Consolidado' | 'Gama Medicina' | 'Gama Soluções') => void;
+  sharedDate: Date;
+  setSharedDate: (date: Date) => void;
+  sharedViewMode: 'mensal' | 'anual';
+  setSharedViewMode: (mode: 'mensal' | 'anual') => void;
+}
+
+const Receitas: React.FC<ReceitasProps> = ({
+  sharedCompany: company,
+  setSharedCompany: setCompany,
+  sharedDate,
+  setSharedDate,
+  sharedViewMode,
+  setSharedViewMode
+}) => {
   const [receitas, setReceitas] = useState<FinanceiroReceita[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,12 +40,16 @@ const Receitas: React.FC = () => {
   const [showCalendar, setShowCalendar] = useState(false);
   const calendarRef = useRef<HTMLDivElement>(null);
 
-  const [monthFilter, setMonthFilter] = useState(() => {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
+  const monthFilter = useMemo(() => {
+    const y = sharedDate.getFullYear();
+    const m = String(sharedDate.getMonth() + 1).padStart(2, '0');
     return `${y}-${m}`;
-  });
+  }, [sharedDate]);
+
+  const setMonthFilter = (newMonthFilter: string) => {
+    const [y, m] = newMonthFilter.split('-').map(Number);
+    setSharedDate(new Date(y, m - 1, 1));
+  };
 
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
 
@@ -64,12 +84,18 @@ const Receitas: React.FC = () => {
       const [year, month] = monthFilter.split('-').map(Number);
       const mStr = String(month).padStart(2, '0');
 
-      // Calculate start and end dates for the month
-      const startDate = `${year}-${mStr}-01`;
-      const nextMonth = month === 12 ? 1 : month + 1;
-      const nextYear = month === 12 ? year + 1 : year;
-      const nextMonthStr = String(nextMonth).padStart(2, '0');
-      const startOfNextMonth = `${nextYear}-${nextMonthStr}-01`;
+      // Date Range Calculation based on View Mode
+      let startDate = "";
+      let endDate = "";
+
+      if (sharedViewMode === 'anual') {
+        startDate = `${year}-01-01`;
+        endDate = `${year}-12-31`;
+      } else {
+        startDate = `${year}-${mStr}-01`;
+        const nextMonthDate = new Date(year, month, 1);
+        endDate = nextMonthDate.toISOString().split('T')[0];
+      }
 
       let allReceitas: any[] = [];
       let from = 0;
@@ -77,11 +103,20 @@ const Receitas: React.FC = () => {
       let hasMore = true;
 
       while (hasMore) {
-        const { data, error } = await supabase
+        let query = supabase
           .from('financeiro_receitas')
           .select(`*, clientes:contratante (id, nome_fantasia, razao_social)`)
           .gte('data_projetada', startDate)
-          .lt('data_projetada', startOfNextMonth)
+          .lt('data_projetada', sharedViewMode === 'anual' ? `${year + 1}-01-01` : endDate);
+
+        // Filter by company if not consolidated
+        if (company === 'Gama Medicina') {
+          query = query.or('empresa_resp.ilike.%Gama Medicina%,empresa_resp.is.null');
+        } else if (company !== 'Consolidado') {
+          query = query.ilike('empresa_resp', company);
+        }
+
+        const { data, error } = await query
           .order('data_projetada', { ascending: true })
           .range(from, to);
 
@@ -110,15 +145,14 @@ const Receitas: React.FC = () => {
         totalExpected += val;
 
         // 2 - Recebido: soma todos os valores da coluna "valor_total" que tenham o valor "pago" na coluna "status"
-        if (status.includes('pago')) {
+        if (status === 'pago' || status === 'pago em dia' || status === 'pago em atraso') {
           totalReceived += val;
         }
 
         // 3 - Pendente: soma todos os valores da coluna "valor_total" que tenham o valor "pendente" ou "vencido" na coluna "status"
-        if (status === 'pendente' || status === 'vencido') {
-          totalPending += val;
-        }
-      });
+        totalPending = totalExpected - totalReceived;
+      }
+      );
 
       setKpis({
         total: totalExpected,
@@ -179,9 +213,13 @@ const Receitas: React.FC = () => {
       };
     }
 
+    let pendingLabel = 'Pendente';
+    if (status === 'aguardando') pendingLabel = 'Aguardando';
+    else if (status === 'em aberto') pendingLabel = 'Em Aberto';
+
     if (!receita.data_projetada) {
       return {
-        label: 'Pendente',
+        label: pendingLabel,
         textColor: 'text-slate-500',
         dotColor: 'bg-slate-400',
         bgPill: 'bg-slate-100',
@@ -203,7 +241,7 @@ const Receitas: React.FC = () => {
     }
 
     return {
-      label: 'Pendente',
+      label: pendingLabel,
       textColor: 'text-[#04a7bd]', // Primary
       dotColor: 'bg-[#04a7bd]',
       bgPill: 'bg-cyan-50',
@@ -700,8 +738,10 @@ const Receitas: React.FC = () => {
               className="bg-white/50 hover:bg-white h-full pl-9 pr-8 rounded-xl text-xs font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#04a7bd]/20 transition-all appearance-none cursor-pointer w-full md:w-36"
             >
               <option value="todos">Todos</option>
-              <option value="pago">Pago (Todos)</option>
               <option value="pendente">Pendente</option>
+              <option value="pago">Pago</option>
+              <option value="aguardando">Aguardando</option>
+              <option value="em aberto">Em Aberto</option>
               <option value="vencido">Vencido</option>
             </select>
           </div>
@@ -908,8 +948,8 @@ const Receitas: React.FC = () => {
       )}
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/10 backdrop-blur-md" onClick={() => setIsModalOpen(false)}></div>
+        <div className="fixed inset-0 z-[1001] flex items-center justify-center p-4 min-h-screen">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}></div>
 
           <div className="glass-panel w-full max-w-lg rounded-[32px] relative z-10 p-8 animate-[scaleIn_0.2s_ease-out] bg-white/80 shadow-2xl border border-white/60 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-8">
